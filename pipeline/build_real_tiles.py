@@ -48,10 +48,15 @@ def tile_and_save(img, mask, outimg, outmask, tag, stride=200, lo=0.004, hi=0.45
 
 def build_dd2vtt(outimg, outmask):
     total = 0
-    for p in sorted(glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True)):
-        name = os.path.basename(p).replace(".dd2vtt", "")
+    paths = sorted(glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True))
+    harvested = sorted(glob.glob("corpus/real_uvtt/**/*.dd2vtt", recursive=True)
+                       + glob.glob("corpus/real_uvtt/**/*.uvtt", recursive=True))
+    paths += [p for p in harvested if "_no_walls" not in p and "_dupes" not in p]
+    for p in paths:
+        name = os.path.splitext(os.path.basename(p))[0]
         if name in EVAL_NAMES:
             continue
+        tag = ("ru_" if "real_uvtt" in p else "dd_") + name[:16]
         try:
             r = load_uvtt(p)
         except Exception:
@@ -74,7 +79,7 @@ def build_dd2vtt(outimg, outmask):
         footprint = ((near > 0) & (dark > 0)).astype(np.uint8)
         footprint = (footprint | (cl > 0)).astype(np.uint8) * 255
         footprint = cv2.morphologyEx(footprint, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
-        total += tile_and_save(img, footprint, outimg, outmask, "dd_" + name[:16], hi=0.6)
+        total += tile_and_save(img, footprint, outimg, outmask, tag, hi=0.6)
     print("dd2vtt tiles:", total)
     return total
 

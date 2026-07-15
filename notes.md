@@ -1,3 +1,23 @@
+## 2026-07-15 — real_uvtt-Harvest abgeschlossen: 27 validierte reale Maps mit Wand-GT
+
+Fortsetzung des UVTT-Harvests: alle Dateien unter `corpus/real_uvtt` mit
+`pipeline/uvtt.py` validiert (Bild dekodierbar + walls>0), SHA256-Dedupe gegen
+`vendor/vtt-maps` (62 Dateien, 0 Überschneidung) und untereinander.
+**27 gültige Maps**: Akesari12 7, pleonr/HotDQ 9 (13 wandlose Outdoor-Maps →
+`_no_walls/`), SangzorDeGeit 5 (+1 aussortiert), oganm 1, Imagix/uvtt2fgu 1
+(neu, BSD-3), **BBEG Adventures 4 (neu)**. BBEG: 0-€-Gast-Checkout (EDD-Shop,
+Bestellungen #97–#99) → Forgotten Crypt + Tomb of the Forgotten 5E/SD VTT-Packs;
+1 byte-identisches Duplikat → `_dupes/`. „The King's Inn" ist SERVERSEITIG
+kaputt (Download-Link → 404-Seite statt ZIP; 3× verifiziert, auch direkte
+wp-content-URL 404) → ggf. support@bbegadventures.com. Lizenz BBEG (INFO.txt):
+Nutzung ok, „do not redistribute … including free assets" → nur lokal.
+Provenienz/Lizenzen komplett in `corpus/real_uvtt/README.md`.
+Nicht frei zugänglich (User müsste manuell): Cze&Peku-Sample-Pack
+(Foundry-Login-Modul, 25 Maps mit Wänden!), Tom Cartos/MikWewa/Aonbarr
+(Patreon). gmcrafttavern: nur Bilder ohne Wanddaten. GOTCHA EDD:
+Download-Links sind Einmal-Tokens; abgebrochener curl = Limit verbraucht →
+neuer 0-€-Checkout nötig.
+
 ## 2026-07-15 — Bildrand-Filter: F1 0.834 → 0.896 (+0.06) — NEUER BESTWERT
 
 Root cause der festival-Schwäche: Modell halluziniert Wand-RAHMEN am Bildrand.
