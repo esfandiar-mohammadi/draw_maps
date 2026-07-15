@@ -13,28 +13,24 @@
 > (F1 ~0.2–0.4).
 >
 > ### Aktueller BESTWERT (harte, ausgehaltene dd2vtt-Maps, echte GT)
-> **Planarer-Graph-Modell (ResNet34-U-Net): F1 0.74 / Precision 0.65 / Recall 0.94.**
-> Modell: `pipeline/models/wall_graph_unet.pt`. Verlauf: CV 0.22 → SAM 0.39 →
-> donjon-only 0.43–0.48 → Domänen-Mix+clDice 0.73 → planarer Graph 0.74.
-> Recall stark (findet fast alle Wände); **Precision (0.65) ist der Engpass**
-> (Überdetektion). Eval-Skript: `pipeline/graph_eval_uvtt.py`.
+> **DINOv2-ViT-g-Graph-Modell (DinoSeg): F1 0.834 / Precision 0.79 / Recall 0.93.**
+> Modell: `pipeline/models/wall_dino_vitg.pt` (Klasse `DinoSeg` in
+> `pipeline/train_dino.py`), Eval: `pipeline/graph_eval_dino.py`. Verlauf:
+> CV 0.22 → SAM 0.39 → donjon-only 0.43–0.48 → Domänen-Mix+clDice 0.73 →
+> ResNet-Graph 0.74 → **DINO-Graph 0.834**. ResNet-Fallback:
+> `wall_graph_unet.pt` + `graph_eval_uvtt.py`. Restschwächen: falscher
+> Wand-Rahmen am Bildrand (festival P=0.36), little-fish leicht regressiert
+> (0.93→0.84). Inferenz teuer (1.14B) → fürs Produkt ggf. Distillation.
 >
-> ### Was GERADE im Hintergrund läuft
-> 1. **DINOv2 ViT-g/14 Fine-Tuning** (User-Wunsch): letzte 4 Blöcke + Kopf, 2-Kanal
->    (Wand+Junctions), 55 % reale Daten. `pipeline/train_dino.py`, Modell →
->    `pipeline/models/wall_dino_vitg.pt`. Prüfen ob fertig: existiert die .pt-Datei
->    + `grep epoch/best` im Task-Log, sonst `nvidia-smi` (GPU-Last).
-> 2. **donjon-Harvest** → `corpus/donjon/base` (Ziel 200k, ~141k fertig). Läuft
->    weiter. WICHTIG: beim Training donjon auf ~8000 DECKELN (`--donjon_cap 8000`),
->    sonst kollabiert der Real-Anteil (mehr donjon hilft dem Transfer NICHT).
->
-> ### Was NACH dem DINO-Training zu prüfen ist (die eine Frage)
-> **Schlägt DINO-ViT-g die F1 0.74 des ResNet-Graph-Modells auf den harten Maps?**
-> Dafür: DINO-spezifische Inferenz nötig (das DINO-Modell ist die Klasse `DinoSeg`
-> in `train_dino.py`, 2-Kanal; `pipeline/graph_infer.py` lädt aktuell das smp-U-Net
-> — für die DINO-Eval `DinoSeg` laden + `wall_dino_vitg.pt`, dann Graph bauen +
-> `graph_eval_uvtt`-Logik). Wenn DINO gewinnt → DINO als Backbone; sonst beim
-> ResNet-Graph bleiben.
+> ### Was GERADE im Hintergrund läuft (Stand 2026-07-15 nachmittags)
+> 1. **HEAT-Agent**: numerische Zero-Shot-Eval von HEAT (vendor/heat, CUDA-Ops
+>    gebaut, Checkpoints geladen) auf den 6 harten Maps + dd2vtt→S3D-Konverter
+>    + Smoke-Train. Frage: schlägt/ergänzt HEAT (Fine-Tune) den DINO-Graphen?
+> 2. **UVTT-Harvest-Agent**: corpus/real_uvtt validieren (36 GitHub-Dateien),
+>    BBEG-Adventures-0€-Checkout fortsetzen, README/Lizenzen schreiben.
+> donjon-Harvest GESTOPPT bei ~143,5k (genug; Cap 8000 beim Training!).
+> DINO-Frage von heute Vormittag BEANTWORTET: JA, 0.834 > 0.738 → DINO ist
+> das Backbone (Details notes.md).
 >
 > ### Nächste Schritte (Reihenfolge + WARUM)
 > 1. **Objekterkennung** (der aktuelle Kern-Fehler: Brücken werden als Fassaden-
