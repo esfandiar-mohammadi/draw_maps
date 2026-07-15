@@ -1,0 +1,17 @@
+# big/generated/vendored — not tracked
+.venv/
+vendor/
+corpus/donjon/
+corpus/real_uvtt/
+corpus/real/
+corpus/maps/
+corpus/thumbs/
+corpus/heat_data/
+corpus/results/
+pipeline/models/
+*.pt
+*.pth
+*.joblib
+__pycache__/
+*.egg-info/
+scratchpad/
