@@ -13,14 +13,15 @@
 > (F1 ~0.2–0.4).
 >
 > ### Aktueller BESTWERT (harte, ausgehaltene dd2vtt-Maps, echte GT)
-> **DINOv2-ViT-g-Graph-Modell (DinoSeg): F1 0.834 / Precision 0.79 / Recall 0.93.**
+> **DINOv2-ViT-g-Graph + Bildrand-Filter: F1 0.896 / Precision 0.87 / Recall 0.93.**
 > Modell: `pipeline/models/wall_dino_vitg.pt` (Klasse `DinoSeg` in
 > `pipeline/train_dino.py`), Eval: `pipeline/graph_eval_dino.py`. Verlauf:
 > CV 0.22 → SAM 0.39 → donjon-only 0.43–0.48 → Domänen-Mix+clDice 0.73 →
-> ResNet-Graph 0.74 → **DINO-Graph 0.834**. ResNet-Fallback:
-> `wall_graph_unet.pt` + `graph_eval_uvtt.py`. Restschwächen: falscher
-> Wand-Rahmen am Bildrand (festival P=0.36), little-fish leicht regressiert
-> (0.93→0.84). Inferenz teuer (1.14B) → fürs Produkt ggf. Distillation.
+> ResNet-Graph 0.74 → DINO-Graph 0.834 → **+Randfilter 0.896**
+> (`drop_border_edges` in graph_infer). ResNet-Fallback: `wall_graph_unet.pt`
+> + `graph_eval_uvtt.py`. Restschwäche: little-fish 0.85 (vs. ResNet 0.93),
+> vereinzelte Geisterlinien. Inferenz teuer (1.14B) → ggf. Distillation.
+> HEAT zero-shot F1 0.296 (überträgt nicht); Fine-Tune-Versuch läuft.
 >
 > ### Was GERADE im Hintergrund läuft (Stand 2026-07-15 nachmittags)
 > 1. **HEAT-Agent**: numerische Zero-Shot-Eval von HEAT (vendor/heat, CUDA-Ops

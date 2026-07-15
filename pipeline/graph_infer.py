@@ -57,6 +57,20 @@ def snap(pt, nodes, r):
     return None
 
 
+def drop_border_edges(nodes, edges, shape, margin=12):
+    """Drop edges that hug the image border (both endpoints within `margin` px
+    of the SAME border side) — models hallucinate a wall frame at the map edge."""
+    H, W = shape[:2]
+    keep = []
+    for a, b, t in edges:
+        (x0, y0), (x1, y1) = nodes[a], nodes[b]
+        if (max(x0, x1) < margin or min(x0, x1) > W - margin
+                or max(y0, y1) < margin or min(y0, y1) > H - margin):
+            continue
+        keep.append((a, b, t))
+    return keep
+
+
 def build_graph(wall, junc, wall_thr=0.4, eps=4.0, snap_r=7, min_len=8):
     binm = cv2.morphologyEx((wall > wall_thr).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
     dist = cv2.distanceTransform(binm, cv2.DIST_L2, 3)
@@ -84,6 +98,7 @@ def build_graph(wall, junc, wall_thr=0.4, eps=4.0, snap_r=7, min_len=8):
             th = float(np.median([2 * dist[int(y), int(x)] for (x, y) in p
                                   if 0 <= int(y) < dist.shape[0] and 0 <= int(x) < dist.shape[1]]) or 2)
             edges.append((a, b, round(th, 1)))
+    edges = drop_border_edges(nodes, edges, wall.shape)
     return merge_collinear(nodes, edges)
 
 
@@ -114,7 +129,6 @@ def merge_collinear(nodes, edges, ang_tol=12):
             k1, k2 = eks
             a1, b1, t1 = out[k1]; a2, b2, t2 = out[k2]
             o1 = b1 if a1 == nd else a1; o2 = b2 if a2 == nd else a2
-            import math
             v1 = ang(nodes[nd], nodes[o1]); v2 = ang(nodes[o2], nodes[nd])
             d = abs((v1 - v2 + 180) % 360 - 180)
             if d <= ang_tol:      # collinear -> merge into one edge o1--o2

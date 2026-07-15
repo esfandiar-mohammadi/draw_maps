@@ -1,3 +1,23 @@
+## 2026-07-15 — Bildrand-Filter: F1 0.834 → 0.896 (+0.06) — NEUER BESTWERT
+
+Root cause der festival-Schwäche: Modell halluziniert Wand-RAHMEN am Bildrand.
+Fix systemisch in `graph_infer.build_graph`: `drop_border_edges` (Kante fliegt,
+wenn BEIDE Endpunkte <12 px an derselben Bildkante liegen; wirkt für alle
+Aufrufer). Re-Eval identisches Protokoll: festival P 0.36→0.82 / F1 0.52→0.88,
+little-fish 0.84→0.85, alle anderen Maps UNVERÄNDERT (kein Regress, Effekt
+feuert nur am Ziel — H8 ✓). **MEAN DINO-GRAPH P=0.871 R=0.926 F1=0.896.**
+Overlay festival geprüft: Rahmen weg, Gebäude/Stände bleiben; eine Geisterlinie
+links übrig. Nebenbei: doppelten `import math` in graph_infer bereinigt (F811).
+
+HEAT-Zwischenergebnis (Agent): **Zero-Shot MEAN F1=0.296** (P=0.37 R=0.28) —
+Satellit→Battlemap überträgt NICHT (road-side 0.00, desert-tavern 0.12).
+Vorsicht Eyeballing: das schöne HEAT_zeroshot_desert-tavern-Overlay zeigt
+GT+Prediction — die Zahlen entlarven es (H2!). ABER: dd2vtt→S3D-Konverter
+(`pipeline/dd2vtt_to_heat.py`, 2338 Crops in corpus/heat_data) läuft, Smoke-
+Train (5 Ep.) lernt gesund (Loss 751→206, corner_recall steigt). Nächster
+Schritt: volles Fine-Tune 300 Epochen (~7,5 h) ab finetune_init_battlemaps_256,
+dann heat_eval_uvtt.py mit dem neuen Checkpoint gegen DINO 0.896.
+
 ## 2026-07-15 — DINO-DURCHBRUCH: ViT-g-Graph F1 0.834 (vorher 0.738) — NEUES BESTMODELL
 
 DINOv2-ViT-g-Fine-Tune fertig (5 Epochen, best val Dice 0.436 — niedriger als
