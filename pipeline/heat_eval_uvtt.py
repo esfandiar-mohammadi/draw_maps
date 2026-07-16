@@ -16,6 +16,7 @@ sys.path.insert(0, _HEAT)  # before pipeline so heat's models/ package wins
 
 from uvtt import load as load_uvtt  # noqa: E402
 from graph_eval_uvtt import raster, dil  # noqa: E402
+import graph_infer  # noqa: E402
 from datasets.data_utils import get_pixel_features  # noqa: E402
 from models.resnet import ResNetBackbone  # noqa: E402
 from models.corner_models import HeatCorner  # noqa: E402
@@ -166,6 +167,11 @@ def evalmap(path, models, pixels, pixel_features, ckpt_args, image_size,
     sc = min(1.0, long_edge / max(H0, W0))
     work = cv2.resize(r["image"], (round(W0 * sc), round(H0 * sc)), interpolation=cv2.INTER_AREA)
     pred_segs = predict_segments(work, models, pixels, pixel_features, ckpt_args, image_size)
+    # same border-frame hallucination as the seg models -> same fix (graph_infer)
+    nodes = [(x0, y0) for x0, y0, _, _ in pred_segs] + [(x1, y1) for _, _, x1, y1 in pred_segs]
+    edges = [(i, i + len(pred_segs), 1) for i in range(len(pred_segs))]
+    kept = graph_infer.drop_border_edges(nodes, edges, work.shape)
+    pred_segs = [(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1]) for a, b, _ in kept]
     gt = raster([(x0 * sc, y0 * sc, x1 * sc, y1 * sc) for x0, y0, x1, y1 in r["walls"]], work.shape[:2])
     pred = raster(pred_segs, work.shape[:2])
     if overlay_dir:

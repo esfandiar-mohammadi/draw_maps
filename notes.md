@@ -1,3 +1,32 @@
+## 2026-07-16 — HEAT fine-tuned = NEUES BESTMODELL: F1 0.908 (DINO 0.896)
+
+Volles HEAT-Fine-Tune fertig (300 Ep., 5:51 h, ab finetune_init_battlemaps_256,
+2338 Crops/83 Maps, checkpoint_best in ckpts_heat_battlemaps_full). Eval
+`heat_eval_uvtt.py --image_size 256` auf den 6 harten Maps, MIT
+drop_border_edges (HEAT halluziniert DENSELBEN Bildrand-Rahmen wie die
+Seg-Modelle — Filter aus graph_infer wiederverwendet, festival P 0.31→0.72):
+
+| Map | DINO 0.896er | HEAT-ft |
+|---|---|---|
+| void-town | 0.81 | **0.89** |
+| goblin-travel-train | 0.94 | **0.95** |
+| desert-tavern | 0.97 | **0.98** |
+| road-side-in | **0.92** | 0.81 |
+| festival-of-fools | **0.88** | 0.82 |
+| little-fish-academy | 0.85 | **0.99** |
+
+**MEAN HEAT-ft P=0.853 R=0.981 F1=0.908.** Verlauf HEAT: zero-shot 0.296 →
+fine-tuned 0.848 → +Randfilter 0.908. HEAT gewinnt 4/6, ausgerechnet die
+DINO-Schwächen (little-fish 0.99, void-town 0.89); DINO bleibt vorn auf
+road-side + festival. Oracle-per-map wäre 0.935 → **Ensemble ist der nächste
+Hebel** (Kanten-Merge + gegenseitige Verifikation über die jeweils andere
+Wandwahrscheinlichkeit). Overfitting-Sorge (Val-corner_recall 0.34) hat sich
+auf den ausgehaltenen Maps NICHT bestätigt — Val-Split ≠ harte Maps.
+PRODUKT-WICHTIG: HEAT ist 49M Params/~190 MB (vs. DINO 1.14B/4.6 GB) und
+liefert nativ WENIGE gerade Segmente (51–110/Map, H4-freundlich, editierbar).
+Trainings-Gotcha: keine — Lauf sauber. Eval-Detail: heat_eval nutzt 256er-
+Kacheln; 512er-Variante ungetestet (Checkpoint ist 256er-Init).
+
 ## 2026-07-15 — real_uvtt-Harvest abgeschlossen: 27 validierte reale Maps mit Wand-GT
 
 Fortsetzung des UVTT-Harvests: alle Dateien unter `corpus/real_uvtt` mit

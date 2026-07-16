@@ -13,15 +13,16 @@
 > (F1 ~0.2–0.4).
 >
 > ### Aktueller BESTWERT (harte, ausgehaltene dd2vtt-Maps, echte GT)
-> **DINOv2-ViT-g-Graph + Bildrand-Filter: F1 0.896 / Precision 0.87 / Recall 0.93.**
-> Modell: `pipeline/models/wall_dino_vitg.pt` (Klasse `DinoSeg` in
-> `pipeline/train_dino.py`), Eval: `pipeline/graph_eval_dino.py`. Verlauf:
-> CV 0.22 → SAM 0.39 → donjon-only 0.43–0.48 → Domänen-Mix+clDice 0.73 →
-> ResNet-Graph 0.74 → DINO-Graph 0.834 → **+Randfilter 0.896**
-> (`drop_border_edges` in graph_infer). ResNet-Fallback: `wall_graph_unet.pt`
-> + `graph_eval_uvtt.py`. Restschwäche: little-fish 0.85 (vs. ResNet 0.93),
-> vereinzelte Geisterlinien. Inferenz teuer (1.14B) → ggf. Distillation.
-> HEAT zero-shot F1 0.296 (überträgt nicht); Fine-Tune-Versuch läuft.
+> **HEAT fine-tuned + Bildrand-Filter: F1 0.908 / P 0.85 / R 0.98.**
+> Checkpoint: `vendor/heat/checkpoints/ckpts_heat_battlemaps_full/
+> checkpoint_best.pth`, Eval: `pipeline/heat_eval_uvtt.py --image_size 256`,
+> Daten-Konverter: `pipeline/dd2vtt_to_heat.py` (2338 Crops, corpus/heat_data).
+> Zweitbestes (komplementär!): DINOv2-ViT-g-Graph 0.896 (`wall_dino_vitg.pt`,
+> `graph_eval_dino.py`); DINO gewinnt road-side+festival, HEAT den Rest.
+> Verlauf: CV 0.22 → SAM 0.39 → donjon 0.43–0.48 → Mix+clDice 0.73 →
+> ResNet-Graph 0.74 → DINO 0.834 → +Randfilter (`drop_border_edges`) 0.896 →
+> **HEAT-ft 0.908**. Oracle-per-map 0.935 → NÄCHSTER HEBEL: DINO+HEAT-Ensemble.
+> Produkt-Plus von HEAT: 49M Params, nativ wenige gerade Segmente (H4).
 >
 > ### Was GERADE im Hintergrund läuft (Stand 2026-07-15 nachmittags)
 > 1. **HEAT-Agent**: numerische Zero-Shot-Eval von HEAT (vendor/heat, CUDA-Ops
