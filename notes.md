@@ -1,3 +1,23 @@
+## 2026-07-16 — JEPA-Domänenanpassung des DINO-Backbones läuft (User-Daten)
+
+User lieferte 507 GEKAUFTE Drakkenheim-Battlemaps (Nextcloud-Link, 2.3 GB ZIP,
+NUR Bilder, KEINE Wand-GT). Lizenz: gekauft → nur lokal, NICHT weitergeben
+(corpus/drakkenheim/, in .gitignore). User-Direktive: Teil ausgehalten lassen,
+Rest für SELF-SUPERVISED Feature-Learning via JEPA.
+- Split `pipeline/jepa_split.py` (ordnerweise, seed 0): 124 Bilder (24%)
+  HELD-OUT/unbenutzt, 383 → JEPA-SSL-Pool. Listen in corpus/drakkenheim_split/.
+- `pipeline/train_jepa.py`: I-JEPA (Assran 2023, Config in1k_vith14_ep300)
+  auf DINOv2-ViT-g. ECHTES Token-Dropping (Context-Encoder sieht Targets nie —
+  sonst trivialer Loss), Prediction im LATENTRAUM, EMA-Target-Encoder, Smooth-L1,
+  Multi-Block-Maske (1 Context 0.85–1.0, 4 Targets 0.15–0.2, aspect 0.75–1.5,
+  patch14, EMA 0.996→1.0, Predictor depth12/emb384). Speicher: nur letzte 6
+  Backbone-Blöcke + Predictor trainierbar (192.6M), frozen prefix no_grad,
+  Target-Encoder volle EMA-Kopie no_grad bf16. Smoke 3 steps OK (kein OOM).
+- Läuft: 6000 steps bs16, Loss 0.68→0.57 @100. Modell → dino_vitg_jepa.pt.
+- WARUM: DINOv2 ist auf Fotos vortrainiert; 383 unlabeled gemalte Maps >> 89
+  gelabelte → JEPA passt Features an die Zieldomäne an, DANN supervised
+  Fine-Tune (DinoSeg mit dino_vitg_jepa.pt statt hub-Init) + Eval vs. 0.896/0.908.
+
 ## 2026-07-16 — HEAT fine-tuned = NEUES BESTMODELL: F1 0.908 (DINO 0.896)
 
 Volles HEAT-Fine-Tune fertig (300 Ep., 5:51 h, ab finetune_init_battlemaps_256,
