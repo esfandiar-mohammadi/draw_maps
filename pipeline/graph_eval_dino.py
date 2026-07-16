@@ -14,13 +14,14 @@ import graph_infer
 
 DEV = "cuda"
 _m = None
+CKPT = "pipeline/models/wall_dino_vitg.pt"
 
 
 def model():
     global _m
     if _m is None:
         m = DinoSeg().to(DEV)
-        m.load_state_dict(torch.load("pipeline/models/wall_dino_vitg.pt", map_location=DEV))
+        m.load_state_dict(torch.load(CKPT, map_location=DEV))
         m.eval(); _m = m
     return _m
 
@@ -72,9 +73,13 @@ def evalmap(path, long_edge=1024, overlay=None):
 
 
 def main():
+    global CKPT
     ap = argparse.ArgumentParser()
     ap.add_argument("--overlays", default="corpus/results")
+    ap.add_argument("--ckpt", default=CKPT)
+    ap.add_argument("--tag", default="DINO_graph")
     a = ap.parse_args()
+    CKPT = a.ckpt
     want = ["void-town", "goblin-travel-train", "desert-tavern", "road-side-in",
             "festival-of-fools", "little-fish-academy"]
     allp = glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True)
@@ -83,7 +88,7 @@ def main():
         p = next((x for x in allp if os.path.basename(x) == n + ".dd2vtt"), None)
         if not p:
             continue
-        r = evalmap(p, overlay=os.path.join(a.overlays, f"DINO_graph_{n}.png"))
+        r = evalmap(p, overlay=os.path.join(a.overlays, f"{a.tag}_{n}.png"))
         if r is None:
             continue
         P, R, F = r; Ps.append(P); Rs.append(R); Fs.append(F)

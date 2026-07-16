@@ -80,6 +80,9 @@ def main():
     ap.add_argument("--epochs", type=int, default=5); ap.add_argument("--bs", type=int, default=8)
     ap.add_argument("--node_reg", type=float, default=0.02)
     ap.add_argument("--donjon_cap", type=int, default=8000)
+    ap.add_argument("--backbone_init", default="",
+                    help="path to a JEPA-adapted ViT-g state_dict to load into the backbone")
+    ap.add_argument("--out", default="pipeline/models/wall_dino_vitg.pt")
     a = ap.parse_args()
     files = sorted(glob.glob(f"{a.data}/images/*.png")); random.seed(0); random.shuffle(files)
     files = files[:a.donjon_cap]   # cap donjon so real painted data keeps a high share
@@ -87,7 +90,12 @@ def main():
     real = sorted(glob.glob(f"{a.real}/images/*.png")); tr = tr + real * a.real_mul; random.shuffle(tr)
     print(f"donjon {len(files)} + real {len(real)}x{a.real_mul} -> {len(tr)} train "
           f"({100*len(real)*a.real_mul//max(1,len(tr))}% real)", flush=True)
-    model = DinoSeg().to(DEV); model.set_finetune_last4()
+    model = DinoSeg().to(DEV)
+    if a.backbone_init:
+        miss = model.backbone.load_state_dict(torch.load(a.backbone_init, map_location=DEV), strict=False)
+        print(f"loaded JEPA backbone {a.backbone_init} (missing {len(miss.missing_keys)}, "
+              f"unexpected {len(miss.unexpected_keys)})", flush=True)
+    model.set_finetune_last4()
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"DINOv2 ViT-g last-4 + head: {n/1e6:.1f}M trainable / "
           f"{sum(p.numel() for p in model.parameters())/1e9:.2f}B total", flush=True)
@@ -111,8 +119,8 @@ def main():
                 d += dice(torch.sigmoid(model(x.to(DEV))[:, :1]), y.to(DEV)[:, :1]); nb += 1
         d /= max(nb, 1); print(f"epoch {ep}/{a.epochs}  wall val Dice={d:.3f}", flush=True)
         if d >= best:
-            best = d; torch.save(model.state_dict(), "pipeline/models/wall_dino_vitg.pt")
-    print(f"best Dice={best:.3f}; saved pipeline/models/wall_dino_vitg.pt")
+            best = d; torch.save(model.state_dict(), a.out)
+    print(f"best Dice={best:.3f}; saved {a.out}")
 
 
 if __name__ == "__main__":
