@@ -9,6 +9,20 @@ per PID gekillt, neu gestartet OHNE Warteschleife (JEPA-ckpt existiert eh),
 direkt Stufe 1. LEHRE: Orchestrator-Warteschleifen NIE auf pgrep von Datei-
 namen, die auch in Beobachter-Kommandos vorkommen — auf Artefakt/Logzeile warten.
 
+**ERGEBNIS DINO-Zweig NEGATIV — JEPA hat den Backbone KOLLABIERT:**
+wall_dino_vitg_jepa.pt: MEAN P=0.211 R=0.265 **F1=0.209** (vs 0.896 ohne JEPA),
+alle 6 Maps 0.06–0.36, best val Dice 0.390 (<0.436 hub-init). Diagnose:
+Representation Collapse — JEPA-Loss stürzt 0.68→0.12 @step1500 und plateaut
+(Target-Features degenerieren, Predictor sagt trivial vorher). URSACHE
+wahrscheinlich DATENMENGE: I-JEPA ist für ImageNet (~1.3M) gebaut; 383 Bilder ×
+6000 steps = jedes Bild ~250× → Collapse. Auch Setup-Faktoren (nur last-6 + EMA
+über alle; EMA-mom 0.996 steigt bei 6000 steps zu langsam) begünstigen es.
+LEHRE: naives continued-JEPA auf kleiner Domänen-Sammlung verschlechtert einen
+starken vortrainierten Backbone. Fix-Ideen falls Wiederaufnahme: viel sanfter
+(nur last-2 auftauen, LR 5e-5, EMA-mom→0.999+, weniger steps/early-stop auf
+Feature-Varianz), oder Collapse-resistente SSL (DINO/iBOT-Loss mit Centering),
+oder SSL nur als AUXILIARY neben supervised (Multi-Task) statt sequenziell.
+
 Beide SSL→Finetune-Ketten (User-Wunsch: SSL dann Finetune, auf DINOv2 UND HEAT):
 - DINO-Zweig: I-JEPA-Backbone (dino_vitg_jepa.pt) → train_dino --backbone_init
   → wall_dino_vitg_jepa.pt → graph_eval_dino → vs 0.896.
