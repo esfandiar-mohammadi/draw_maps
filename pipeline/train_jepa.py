@@ -27,8 +27,8 @@ G = CROP // PATCH   # 16
 
 # ----------------------------- data ---------------------------------------
 class SSLTiles(torch.utils.data.Dataset):
-    def __init__(self, files, length, long_edge=1024):
-        self.files, self.length, self.long_edge = files, length, long_edge
+    def __init__(self, files, length):
+        self.files, self.length = files, length
 
     def __len__(self):
         return self.length
@@ -38,8 +38,11 @@ class SSLTiles(torch.utils.data.Dataset):
         img = None
         while img is None:
             img = cv2.imread(rng.choice(self.files))
+        # short-edge resize to a random target -> a ~CROP window at consistent
+        # scale across mixed sources (tiny 199px donjon .. huge painted maps)
         H, W = img.shape[:2]
-        sc = self.long_edge / max(H, W)
+        target = rng.randint(CROP, CROP * 2)
+        sc = target / min(H, W)
         img = cv2.resize(img, (max(CROP, round(W * sc)), max(CROP, round(H * sc))))
         H, W = img.shape[:2]
         y = rng.randint(0, H - CROP); x = rng.randint(0, W - CROP)

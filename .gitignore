@@ -16,3 +16,5 @@ pipeline/models/
 __pycache__/
 *.egg-info/
 scratchpad/
+corpus/ssl_real/
+corpus/ssl_pool.txt
