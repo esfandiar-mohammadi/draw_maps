@@ -1,3 +1,23 @@
+## 2026-07-17 — SSL→Finetune-Pipeline (BEIDE Zweige) läuft; ~20h durch Orchestrierungsfehler verloren
+
+GOTCHA (teuer, ~20h): Orchestrator-Skript hatte als Stufe 0 eine Warteschleife
+`while pgrep -f "train_jepa.py"; do sleep 120`. Meine eigenen Monitoring-Watcher
+(until-loops) enthielten „train_jepa.py" in ihrer Kommandozeile → der
+Orchestrator-pgrep matchte DIE (Selbstmatch, exakt der CLAUDE.md-pgrep-Gotcha)
+→ Stufe 1 wurde nie erreicht, obwohl JEPA um 21:28 fertig war. FIX: Orchestrator
+per PID gekillt, neu gestartet OHNE Warteschleife (JEPA-ckpt existiert eh),
+direkt Stufe 1. LEHRE: Orchestrator-Warteschleifen NIE auf pgrep von Datei-
+namen, die auch in Beobachter-Kommandos vorkommen — auf Artefakt/Logzeile warten.
+
+Beide SSL→Finetune-Ketten (User-Wunsch: SSL dann Finetune, auf DINOv2 UND HEAT):
+- DINO-Zweig: I-JEPA-Backbone (dino_vitg_jepa.pt) → train_dino --backbone_init
+  → wall_dino_vitg_jepa.pt → graph_eval_dino → vs 0.896.
+- HEAT-Zweig: BYOL-SSL resnet50 (train_byol, CNN-Analogon zu JEPA: EMA-Target +
+  Predictor, Latent-Loss, keine Negatives) → inject_byol_heat (318/318 tensors,
+  module.base_model.* prefix) → HEAT-Finetune 300ep → heat_eval → vs 0.908.
+Sequenziell (parallel ViT-g+resnet OOMt). Stufe 1 läuft: JEPA-Backbone sauber
+geladen (missing 0), 58% real / 159 reale Kacheln.
+
 ## 2026-07-16 — JEPA-Domänenanpassung des DINO-Backbones läuft (User-Daten)
 
 User lieferte 507 GEKAUFTE Drakkenheim-Battlemaps (Nextcloud-Link, 2.3 GB ZIP,
