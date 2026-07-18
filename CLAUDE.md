@@ -13,16 +13,17 @@
 > (F1 ~0.2–0.4).
 >
 > ### Aktueller BESTWERT (harte, ausgehaltene dd2vtt-Maps, echte GT)
-> **HEAT fine-tuned + Bildrand-Filter: F1 0.908 / P 0.85 / R 0.98.**
-> Checkpoint: `vendor/heat/checkpoints/ckpts_heat_battlemaps_full/
-> checkpoint_best.pth`, Eval: `pipeline/heat_eval_uvtt.py --image_size 256`,
-> Daten-Konverter: `pipeline/dd2vtt_to_heat.py` (2338 Crops, corpus/heat_data).
-> Zweitbestes (komplementär!): DINOv2-ViT-g-Graph 0.896 (`wall_dino_vitg.pt`,
-> `graph_eval_dino.py`); DINO gewinnt road-side+festival, HEAT den Rest.
-> Verlauf: CV 0.22 → SAM 0.39 → donjon 0.43–0.48 → Mix+clDice 0.73 →
-> ResNet-Graph 0.74 → DINO 0.834 → +Randfilter (`drop_border_edges`) 0.896 →
-> **HEAT-ft 0.908**. Oracle-per-map 0.935 → NÄCHSTER HEBEL: DINO+HEAT-Ensemble.
-> Produkt-Plus von HEAT: 49M Params, nativ wenige gerade Segmente (H4).
+> **HEAT/BYOL fine-tuned + Bildrand-Filter: F1 0.926 / P 0.89 / R 0.97.**
+> Checkpoint: `vendor/heat/checkpoints/ckpts_heat_byol_full/checkpoint_best.pth`,
+> Eval: `pipeline/heat_eval_uvtt.py --image_size 256`. Backbone per BYOL-SSL auf
+> Domäne vortrainiert (`train_byol.py` auf 176k-Pool → `inject_byol_heat.py` →
+> HEAT-Finetune). Vorheriges HEAT (ImageNet-Init) 0.908; BYOL-SSL brachte +0.018.
+> Verlauf: CV 0.22 → SAM 0.39 → donjon 0.43 → Mix+clDice 0.73 → ResNet-Graph
+> 0.74 → DINO-Graph 0.834 → +Randfilter 0.896 → HEAT-ft 0.908 → **HEAT/BYOL
+> 0.926**. Zweitbestes (komplementär): DINO-Graph 0.896 (`wall_dino_vitg.pt`).
+> DINO+JEPA-SSL SCHEITERTE (0.36, Collapse; JEPA-Rezept fragil auf kleiner
+> Domäne — BYOL robust). Nächster Hebel: DINO+HEAT-Ensemble (Oracle-per-map
+> ~0.94). Produkt-Plus HEAT: 49M Params, nativ wenige gerade Segmente (H4).
 >
 > ### Was GERADE im Hintergrund läuft (Stand 2026-07-15 nachmittags)
 > 1. **HEAT-Agent**: numerische Zero-Shot-Eval von HEAT (vendor/heat, CUDA-Ops

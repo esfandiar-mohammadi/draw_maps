@@ -1,3 +1,32 @@
+## 2026-07-18 — SSL-ERGEBNISSE: HEAT/BYOL 0.926 (NEUER BESTWERT), DINO/JEPA scheitert
+
+Volle Kette durch (großer SSL-Pool 176k = 144k donjon + 633 gemalte ×50, 18%).
+GEGENSÄTZLICHE Ergebnisse der beiden SSL→Finetune-Zweige:
+
+**HEAT/BYOL = ERFOLG, NEUER BESTWERT F1 0.926** (P=0.888 R=0.973), vorher 0.908.
+BYOL-vortrainierter resnet50 (train_byol, 176k Pool) → inject → HEAT-Finetune
+300ep. Sauberer A/B: identischer Lauf wie das 0.908-Modell, NUR Backbone-Init
+BYOL-auf-Domäne statt ImageNet. Per Map vs HEAT-ImageNet(0.908):
+road-side 0.81→**0.92**, festival 0.82→**0.91** (große Gewinne), void-town
+0.89→0.80 (einzige Regression), goblin/desert/little-fish unverändert
+(0.95/0.98/0.99). Overlay road-side geprüft (H2): Gasthaus+Räume sauber, 1
+Streulinie. Checkpoint: vendor/heat/checkpoints/ckpts_heat_byol_full/
+checkpoint_best.pth. → BYOL-Domänenanpassung des CNN-Backbones WIRKT.
+
+**DINO/JEPA = MISSERFOLG, F1 0.362** (P=0.44 R=0.37; großer Pool half ggü.
+383-Collapse 0.209, aber weit unter Baseline 0.896). JEPA-Loss fiel wie beim
+Collapse schnell auf ~0.11-Plateau — der große Pool hat es NICHT behoben →
+Ursache ist das REZEPT, nicht die Datenmenge. Wahrscheinlich: nur last-6 blocks
+trainierbar + EMA über ganzes Netz + kein Collapse-Schutz (I-JEPA verlässt sich
+auf Skalierung/Datenvielfalt, die wir nicht haben). BYOL funktioniert, weil es
+BN-Collapse-Schutz + vollen Backbone + sanften ImageNet-Start hat.
+LEHRE: JEPA für Domänen-SSL auf kleiner Sammlung fragil; BYOL robust.
+DINO/JEPA-Fix (VICReg-Reg, nur last-2, EMA-mom↑) = niedriger ROI, da DINO-
+Baseline 0.896 < HEAT/BYOL 0.926 ohnehin. Zurückgestellt.
+
+Gesamtverlauf F1: CV 0.22 → … → ResNet-Graph 0.74 → DINO-Graph 0.90 →
+HEAT-ft 0.908 → **HEAT/BYOL 0.926**.
+
 ## 2026-07-17 — SSL→Finetune-Pipeline (BEIDE Zweige) läuft; ~20h durch Orchestrierungsfehler verloren
 
 GOTCHA (teuer, ~20h): Orchestrator-Skript hatte als Stufe 0 eine Warteschleife
