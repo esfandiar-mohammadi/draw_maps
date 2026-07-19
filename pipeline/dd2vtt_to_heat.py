@@ -93,8 +93,12 @@ def main():
     files = sorted(glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True))
     for ext in ("dd2vtt", "uvtt", "json"):
         files += sorted(glob.glob(f"corpus/real_uvtt/**/*.{ext}", recursive=True))
+    fa_test = set()
     if args.fa:
         files += sorted(glob.glob("corpus/fa/**/*.dd2vtt", recursive=True))
+        if os.path.exists("corpus/fa_test.txt"):
+            fa_test = {ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()}
+            print(f"holding out {len(fa_test)} FA maps as test (corpus/fa_test.txt)")
     for d in ("density", "normals", "annot"):
         os.makedirs(os.path.join(args.out, d), exist_ok=True)
     black = np.zeros((args.crop, args.crop, 3), np.uint8)
@@ -102,8 +106,8 @@ def main():
     names_by_map, n_maps, n_skip = {}, 0, 0
     for fi, path in enumerate(files):
         stem = os.path.splitext(os.path.basename(path))[0]
-        if stem in HARD:
-            print(f"SKIP held-out: {stem}"); continue
+        if stem in HARD or stem in fa_test:
+            continue
         try:
             r = load_uvtt(path)
         except Exception as e:

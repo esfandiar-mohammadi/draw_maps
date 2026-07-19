@@ -194,24 +194,39 @@ def main():
     ap.add_argument("--ckpt", default="vendor/heat/checkpoints/ckpts_heat_outdoor_512/checkpoint.pth")
     ap.add_argument("--image_size", type=int, default=512)
     ap.add_argument("--overlay_dir", default="")
+    ap.add_argument("--fa_test", action="store_true",
+                    help="evaluate on the held-out FA maps in corpus/fa_test.txt "
+                         "(instead of the 6 hard dd2vtt maps)")
+    ap.add_argument("--per_map", action="store_true", help="print each map's P/R/F1")
     args = ap.parse_args()
     models, ckpt_args = load_models(args.ckpt)
     pixels, pixel_features = get_pixel_features(image_size=args.image_size)
     pixel_features = pixel_features.cuda()
-    allp = glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True)
+
+    if args.fa_test:
+        slugs = [ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()]
+        maps = [(s, os.path.join("corpus/fa", s + ".dd2vtt")) for s in slugs]
+        tag = f"FA held-out ({len(maps)} maps)"
+    else:
+        allp = glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True)
+        maps = [(n, next((x for x in allp if os.path.basename(x) == n + ".dd2vtt"), None))
+                for n in HARD]
+        tag = "6 hard dd2vtt maps"
+
     Ps, Rs, Fs = [], [], []
-    for n in HARD:
-        p = next((x for x in allp if os.path.basename(x) == n + ".dd2vtt"), None)
-        if not p:
+    for n, p in maps:
+        if not p or not os.path.exists(p):
             continue
         r = evalmap(p, models, pixels, pixel_features, ckpt_args, args.image_size,
                     overlay_dir=args.overlay_dir or None)
         if r is None:
             continue
         P, R, F, nseg = r; Ps.append(P); Rs.append(R); Fs.append(F)
-        print(f"{n:32s} HEAT  P={P:.2f} R={R:.2f} F1={F:.2f}  ({nseg} segs)", flush=True)
+        if args.per_map or not args.fa_test:
+            print(f"{n:36s} HEAT  P={P:.2f} R={R:.2f} F1={F:.2f}  ({nseg} segs)", flush=True)
     if Ps:
-        print(f"\nMEAN HEAT  P={np.mean(Ps):.3f} R={np.mean(Rs):.3f} F1={np.mean(Fs):.3f}")
+        print(f"\nMEAN HEAT [{tag}]  P={np.mean(Ps):.3f} R={np.mean(Rs):.3f} "
+              f"F1={np.mean(Fs):.3f}  (n={len(Ps)})")
 
 
 if __name__ == "__main__":
