@@ -9,6 +9,14 @@ ToS): **öffentliches Repo + öffentliche API** ausgenutzt.
   Auth** (userId leer → 200); Premium → 401.
 - **Phase A DURCH: 87 Free-Maps → `corpus/fa/*.dd2vtt`, 20.901 Wandsegmente,
   399 Türen, 0 Fehler.** Harvester `pipeline/fa_harvest.py`.
+- **Phase B DURCH: +187 Premium-Maps** (von 195; 8 verloren: 3×HTTP400,
+  5×no-image). User autorisierte OAuth-uuid (has_premium bis 2026-08-19).
+  **Gesamt 274 Bild+Wall-Maps.** Overlays Premium (mushroom-inn) exakt.
+- **Phase D LÄUFT: Fortsetzung vom 0.926-Checkpoint** (User-Wunsch: Warm-Start
+  statt neu), `--resume ckpts_heat_byol_full/checkpoint_best.pth` ab Epoche 46,
+  auf allen 274 FA-Maps (`dd2vtt_to_heat.py --fa` → 8810 Crops, 7.5× Baseline
+  1169). output=ckpts_heat_byol_fa_cont. Baseline mit heat_eval_uvtt reproduziert:
+  F1 0.926 (void-town 0.80 schwächste). Symlink data/s3d_floorplan→heat_data_fa.
 
 Koordinaten (H7): Walls in Foundry-GEPADDETEM Canvas. `pixel=(canvas−pad)·scale`,
 `pad=ceil(padding·dim/grid)·grid`, `scale=img/scene`. FALLE: manche Bilder in 2×

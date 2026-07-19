@@ -39,10 +39,13 @@ illustrations (map04) are poor fits by nature. See `../notes.md`.
 
 # `corpus/fa/` — Forgotten Adventures battlemaps as wall ground-truth (2026-07-19)
 
-87 **free** FA battlemaps harvested into `.dd2vtt` files (image + hand-placed
-walls + doors): **20,901 wall segments, 399 doors**, coordinate-verified. This
-is the largest clean real-map GT set in the project — walls are professional,
-hand-authored Foundry Wall documents, not pseudo-labels.
+**274** FA battlemaps harvested into `.dd2vtt` files (image + hand-placed walls +
+doors): **87 free + 187 premium** (of 195; 8 lost to HTTP 400 / no-image).
+Coordinate-verified. This is by far the largest clean real-map GT set in the
+project — walls are professional, hand-authored Foundry Wall documents, not
+pseudo-labels. Free maps: 20,901 wall segments / 399 doors alone.
+
+Folded into HEAT training tiles via `dd2vtt_to_heat.py --fa` (1169 → 8810 crops).
 
 **Provenance.** Walls come from the public repo
 [Forgotten-Adventures/FA_Battlemaps](https://github.com/Forgotten-Adventures/FA_Battlemaps)
