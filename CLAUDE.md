@@ -1,6 +1,6 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩ **RESUME HERE — Stand 2026-07-15 (nach `/clear` ZUERST lesen).**
+> ⏩⏩ **RESUME HERE — Stand 2026-07-19 (nach `/clear` ZUERST lesen).**
 > Der ausführliche, chronologische Verlauf steht in `notes.md` (neueste oben) —
 > lies die obersten ~15 Einträge. Dieser Block ist die Kurzfassung zum Weitermachen.
 >
@@ -25,29 +25,27 @@
 > Domäne — BYOL robust). Nächster Hebel: DINO+HEAT-Ensemble (Oracle-per-map
 > ~0.94). Produkt-Plus HEAT: 49M Params, nativ wenige gerade Segmente (H4).
 >
-> ### Was GERADE im Hintergrund läuft (Stand 2026-07-15 nachmittags)
-> 1. **HEAT-Agent**: numerische Zero-Shot-Eval von HEAT (vendor/heat, CUDA-Ops
->    gebaut, Checkpoints geladen) auf den 6 harten Maps + dd2vtt→S3D-Konverter
->    + Smoke-Train. Frage: schlägt/ergänzt HEAT (Fine-Tune) den DINO-Graphen?
-> 2. **UVTT-Harvest-Agent**: corpus/real_uvtt validieren (36 GitHub-Dateien),
->    BBEG-Adventures-0€-Checkout fortsetzen, README/Lizenzen schreiben.
-> donjon-Harvest GESTOPPT bei ~143,5k (genug; Cap 8000 beim Training!).
-> DINO-Frage von heute Vormittag BEANTWORTET: JA, 0.834 > 0.738 → DINO ist
-> das Backbone (Details notes.md).
+> ### Was GERADE läuft: NICHTS (Stand 2026-07-19)
+> Alle Trainings/Experimente abgeschlossen, GPU frei, git sauber (commit 2a86136+).
+> Die SSL→Finetune-Kette (JEPA für DINO, BYOL für HEAT, auf 176k-Pool) ist DURCH.
+> Ergebnis: HEAT/BYOL 0.926 (neuer Bestwert), DINO/JEPA gescheitert (0.36, Collapse).
+> KEINE Hintergrundprozesse mehr — nichts zu überwachen/fortzusetzen.
+> GOTCHA aus dieser Runde (notes 2026-07-17): Orchestrator-Warteschleifen NIE auf
+> `pgrep -f "train_X.py"` — matcht eigene Beobachter-Kommandos (Selbstmatch), hing
+> ~20h. Auf Artefakt/Logzeile warten, nicht auf Prozessnamen.
 >
-> ### Nächste Schritte (Reihenfolge + WARUM)
-> 1. **Objekterkennung** (der aktuelle Kern-Fehler: Brücken werden als Fassaden-
->    Verlängerung gelesen, Schornsteine als Gebäudeende). Plan in `OBJECT_MODELS.md`:
->    **Grounding DINO** (open-vocab, Prompts „bridge/chimney/water/stairs/tower") →
->    Masken → Wandgraph korrigieren (Brücke=begehbar, Schornstein→ins Gebäude
->    verschmelzen). Grounding DINO ≠ DINOv2 (anderes Modell!).
-> 2. **Verschränkte Detektion↔Segmentierung** (User-Design): Objekt-Hypothese →
->    Seg trennt in Unterobjekte → bestätigt/lehnt Trennung ab (erkennt Zusammen-
->    gehörigkeit) → erneuter Versuch → wenn beide sich einig sind (inkl. Türen/
->    Fenster) → saubere Wand-Graph-Segmentierung auf den Gebäuden.
-> 3. **Precision heben** (0.65): mehr realer Trainingsanteil, stärkere Knoten-/
->    Kanten-Regularisierung, Kanten-Verifikation über die Wandwahrscheinlichkeit
->    zwischen zwei Knoten.
+> ### Nächste Schritte (Reihenfolge + WARUM) — Vorschläge, User entscheidet
+> 1. **DINO+HEAT-Ensemble**: HEAT 0.926 und DINO-Graph 0.896 sind per-Map
+>    komplementär (Oracle-per-map ~0.94). Kanten mergen + gegenseitige
+>    Verifikation über die jeweils andere Wandwahrscheinlichkeit. Klarster Hebel.
+> 2. **Foundry-E2E-Test** des 0.926-HEAT/BYOL-Modells im Test-World „wall-test":
+>    Wände aus dem HEAT-Output → UVTT → Import → in-game prüfen (H2).
+> 3. **JEPA reparieren** (NIEDRIGER ROI): Collapse-Schutz (VICReg-Varianz/
+>    Kovarianz-Reg), nur last-1/2 Blöcke, EMA-mom→0.999+. Nur wenn DINO-Zweig
+>    weiterverfolgt wird — HEAT/BYOL ist ohnehin besser.
+> VERWORFEN (empirisch widerlegt, NICHT erneut versuchen): Grounding DINO
+> zero-shot für bridge/chimney-Korrektur (zu verrauscht, notes 2026-07-15);
+> mehr donjon-Daten allein (Domänenkluft); reines JEPA-SSL auf kleiner Domäne.
 >
 > ### WARUM dieser Weg
 > - **Domänen-Mix** (reale dd2vtt-Maps + donjon) war DER Durchbruch (0.43→0.73).
@@ -68,8 +66,14 @@
 > `donjon_harvest2.py` donjon-Harvester · `train_seg.py` U-Net-Training (clDice,
 > grid-aug, last-8) · `train_graph.py` 2-Kanal Wand+Junction · `graph_infer.py`
 > Graph-Aufbau · `graph_eval_uvtt.py`/`seg_eval_uvtt.py` Eval · `vectorize_walls.py`
-> Polylinien · `build_real_tiles.py` reale+Pseudo-Kacheln · `train_dino.py` DINO ·
-> `dino_features.py` DINO-Feature-Probe · `infer_seg.py` Inferenz.
+> Polylinien · `build_real_tiles.py` reale+Pseudo-Kacheln · `train_dino.py` DINO
+> (`--backbone_init` lädt JEPA-Backbone) · `graph_eval_dino.py` DINO-Graph-Eval
+> (`--ckpt`/`--tag`) · `dino_features.py` DINO-Feature-Probe · `infer_seg.py`
+> Inferenz. **SSL+HEAT (neu):** `dd2vtt_to_heat.py` dd2vtt→S3D-Konverter ·
+> `heat_eval_uvtt.py` HEAT-Eval (nutzt `drop_border_edges`) · `train_jepa.py`
+> I-JEPA-SSL für ViT-g (GESCHEITERT, Collapse) · `train_byol.py` BYOL-SSL für
+> resnet50 (ERFOLG) · `inject_byol_heat.py` BYOL-Gewichte→HEAT-Init ·
+> `jepa_split.py` Drakkenheim-Split. HEAT selbst: `vendor/heat` (woodfrog/heat).
 >
 > ### GOTCHAS (haben Zeit gekostet)
 > - **pgrep/pkill Selbst-Match:** NIE `pkill -f "train_X.py"` in einem Befehl, dessen
