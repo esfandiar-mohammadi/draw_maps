@@ -84,6 +84,43 @@ def build_dd2vtt(outimg, outmask):
     return total
 
 
+def build_fa(outimg, outmask):
+    """Forgotten-Adventures maps -> footprint wall-mask tiles. Excludes the 20%
+    held-out FA test maps (corpus/fa_test.txt). Same scale/thickness convention
+    as build_dd2vtt so FA tiles mix cleanly with donjon/dd2vtt."""
+    fa_test = set()
+    if os.path.exists("corpus/fa_test.txt"):
+        fa_test = {ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()}
+    total = 0
+    for p in sorted(glob.glob("corpus/fa/*.dd2vtt")):
+        name = os.path.splitext(os.path.basename(p))[0]
+        if name in fa_test:
+            continue
+        try:
+            r = load_uvtt(p)
+        except Exception:
+            continue
+        if r["image"] is None or not r["walls"]:
+            continue
+        sc = CELLPX / r["ppg"]
+        H0, W0 = r["image"].shape[:2]
+        if max(H0 * sc, W0 * sc) < TILE:
+            sc = TILE / min(H0, W0)
+        img = cv2.resize(r["image"], (round(W0 * sc), round(H0 * sc)), interpolation=cv2.INTER_AREA)
+        segs = [(x0 * sc, y0 * sc, x1 * sc, y1 * sc) for x0, y0, x1, y1 in r["walls"]]
+        cl = raster(segs, img.shape[:2], thick=2)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        dark = (gray < np.percentile(gray, 45)).astype(np.uint8)
+        maxthick = max(6, int(CELLPX * 1.3))
+        near = cv2.dilate(cl, np.ones((maxthick, maxthick), np.uint8))
+        footprint = ((near > 0) & (dark > 0)).astype(np.uint8)
+        footprint = (footprint | (cl > 0)).astype(np.uint8) * 255
+        footprint = cv2.morphologyEx(footprint, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        total += tile_and_save(img, footprint, outimg, outmask, "fa_" + name[:20], hi=0.6)
+    print("FA tiles:", total)
+    return total
+
+
 def build_reddit_pseudo(outimg, outmask):
     import grid_walls, sam_walls
     total = 0
@@ -116,11 +153,25 @@ def build_reddit_pseudo(outimg, outmask):
 
 
 def main():
-    outimg, outmask = "corpus/real/images", "corpus/real/masks"
-    os.makedirs(outimg, exist_ok=True); os.makedirs(outmask, exist_ok=True)
-    build_dd2vtt(outimg, outmask)
-    build_reddit_pseudo(outimg, outmask)
-    print("total real tiles:", len(os.listdir(outimg)))
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--only", choices=["dd2vtt", "reddit", "fa"], default=None,
+                    help="build only one source")
+    ap.add_argument("--out", default="corpus/real", help="output tile dir")
+    a = ap.parse_args()
+    outimg, outmask = f"{a.out}/images", f"{a.out}/masks"
+    os.makedirs(outimg, exist_ok=True)
+    os.makedirs(outmask, exist_ok=True)
+    if a.only == "fa":
+        build_fa(outimg, outmask)
+    elif a.only == "dd2vtt":
+        build_dd2vtt(outimg, outmask)
+    elif a.only == "reddit":
+        build_reddit_pseudo(outimg, outmask)
+    else:
+        build_dd2vtt(outimg, outmask)
+        build_reddit_pseudo(outimg, outmask)
+    print("total tiles:", len(os.listdir(outimg)))
 
 
 if __name__ == "__main__":

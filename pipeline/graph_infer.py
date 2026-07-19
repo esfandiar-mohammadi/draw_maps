@@ -20,8 +20,9 @@ _m = None
 def model():
     global _m
     if _m is None:
+        ckpt = os.environ.get("WALL_GRAPH_CKPT", "pipeline/models/wall_graph_unet.pt")
         m = smp.Unet("resnet34", encoder_weights=None, classes=2).to(DEV)
-        m.load_state_dict(torch.load("pipeline/models/wall_graph_unet.pt", map_location=DEV))
+        m.load_state_dict(torch.load(ckpt, map_location=DEV))
         m.eval(); _m = m
     return _m
 

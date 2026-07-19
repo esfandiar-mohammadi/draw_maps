@@ -41,21 +41,33 @@ def evalmap(path, long_edge=1024):
 
 
 def main():
-    want = ["void-town", "goblin-travel-train", "desert-tavern", "road-side-in",
-            "festival-of-fools", "little-fish-academy"]
-    allp = glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True)
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fa_test", action="store_true")
+    ap.add_argument("--per_map", action="store_true")
+    a = ap.parse_args()
+    if a.fa_test:
+        slugs = [ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()]
+        maps = [(s, os.path.join("corpus/fa", s + ".dd2vtt")) for s in slugs]
+    else:
+        want = ["void-town", "goblin-travel-train", "desert-tavern", "road-side-in",
+                "festival-of-fools", "little-fish-academy"]
+        allp = glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True)
+        maps = [(n, next((x for x in allp if os.path.basename(x) == n + ".dd2vtt"), None))
+                for n in want]
     Ps, Rs, Fs = [], [], []
-    for n in want:
-        p = next((x for x in allp if os.path.basename(x) == n + ".dd2vtt"), None)
-        if not p:
+    for n, p in maps:
+        if not p or not os.path.exists(p):
             continue
         r = evalmap(p)
         if r is None:
             continue
         P, R, F = r; Ps.append(P); Rs.append(R); Fs.append(F)
-        print(f"{n:32s} GRAPH  P={P:.2f} R={R:.2f} F1={F:.2f}")
+        if a.per_map or not a.fa_test:
+            print(f"{n:36s} GRAPH  P={P:.2f} R={R:.2f} F1={F:.2f}")
     if Ps:
-        print(f"\nMEAN GRAPH  P={np.mean(Ps):.3f} R={np.mean(Rs):.3f} F1={np.mean(Fs):.3f}")
+        tag = f"FA held-out (n={len(Ps)})" if a.fa_test else f"6 hard (n={len(Ps)})"
+        print(f"\nMEAN GRAPH [{tag}]  P={np.mean(Ps):.3f} R={np.mean(Rs):.3f} F1={np.mean(Fs):.3f}")
 
 
 if __name__ == "__main__":

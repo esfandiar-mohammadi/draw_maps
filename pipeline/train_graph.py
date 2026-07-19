@@ -65,22 +65,32 @@ class DS(torch.utils.data.Dataset):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="corpus/donjon/base")
-    ap.add_argument("--real", default="corpus/real")
+    ap.add_argument("--real", default="corpus/real",
+                    help="comma-separated real tile dirs (all oversampled by --real_mul)")
     ap.add_argument("--real_mul", type=int, default=65)
     ap.add_argument("--samples", type=int, default=120000)
     ap.add_argument("--epochs", type=int, default=6)
     ap.add_argument("--bs", type=int, default=48)
     ap.add_argument("--node_reg", type=float, default=0.02)
+    ap.add_argument("--out", default="pipeline/models/wall_graph_unet.pt")
+    ap.add_argument("--init", default="", help="checkpoint to warm-start from")
     a = ap.parse_args()
     files = sorted(glob.glob(f"{a.data}/images/*.png"))
     random.seed(0); random.shuffle(files)
     nval = max(20, int(0.1 * len(files))); va, tr = files[:nval], files[nval:]
-    real = sorted(glob.glob(f"{a.real}/images/*.png"))
+    real = []
+    for rd in a.real.split(","):
+        rd = rd.strip()
+        if rd:
+            real += sorted(glob.glob(f"{rd}/images/*.png"))
     tr = tr + real * a.real_mul; random.shuffle(tr)
     per_epoch = a.samples // a.epochs
     print(f"donjon {len(files)} + real {len(real)}x{a.real_mul} -> {len(tr)} train "
           f"({100*len(real)*a.real_mul//max(1,len(tr))}% real); node_reg={a.node_reg}", flush=True)
     model = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet", classes=2).to(DEV)
+    if a.init:
+        model.load_state_dict(torch.load(a.init, map_location=DEV))
+        print(f"warm-started from {a.init}", flush=True)
     set_finetune_last8(model)
     dl = torch.utils.data.DataLoader(DS(tr, per_epoch), batch_size=a.bs, shuffle=True,
                                      num_workers=8, drop_last=True, persistent_workers=True)
@@ -107,8 +117,8 @@ def main():
         dw /= max(nb, 1)
         print(f"epoch {ep}/{a.epochs}  wall val Dice={dw:.3f}", flush=True)
         if dw >= best:
-            best = dw; torch.save(model.state_dict(), "pipeline/models/wall_graph_unet.pt")
-    print(f"best wall Dice={best:.3f}; saved pipeline/models/wall_graph_unet.pt")
+            best = dw; torch.save(model.state_dict(), a.out)
+    print(f"best wall Dice={best:.3f}; saved {a.out}")
 
 
 if __name__ == "__main__":
