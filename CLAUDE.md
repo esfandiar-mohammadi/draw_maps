@@ -1,8 +1,18 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
 > ⏩⏩ **RESUME HERE — Stand 2026-07-19 (nach `/clear` ZUERST lesen).**
-> Der ausführliche, chronologische Verlauf steht in `notes.md` (neueste oben) —
-> lies die obersten ~15 Einträge. Dieser Block ist die Kurzfassung zum Weitermachen.
+> Dieser Block ist die Kurzfassung zum Weitermachen.
+>
+> **Nach `/clear` in dieser Reihenfolge lesen:**
+> 1. **Diesen RESUME-Block** (bis „GOTCHAS" unten) — Gesamtstand in Kurzform.
+> 2. **`notes.md`**, oberste ~15 Einträge (neueste oben) — chronologischer
+>    Detailverlauf mit Metriken/Begründungen.
+> 3. **Auto-Memory** (`…/memory/MEMORY.md` + Einträge) — wird automatisch als
+>    system-reminder geladen; enthält u.a. den DINO+HEAT-Ensemble-Vorschlag und
+>    die Forgotten-Adventures-Notiz. NICHT als Live-Zustand behandeln (verifizieren).
+> 4. Bei Bedarf, themenspezifisch: `OBJECT_MODELS.md` (Objekterkennung),
+>    `ML_TRAINING_DATA.md` (Datenquellen), `corpus/real_uvtt/README.md`
+>    (geharvestete Maps + Lizenzen).
 >
 > ### Wo wir stehen (das Projekt hat sich stark entwickelt)
 > Ursprung: Add-on für Foundry VTT, das Wände auf Battlemaps automatisch zeichnet.
