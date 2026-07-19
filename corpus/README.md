@@ -34,3 +34,40 @@ Edge mode = high recall / low precision (noise); single-colour mode = high
 precision / low recall. Auto-Wall is designed to be **semi-automatic** (user
 picks wall colours + edits the mask). Organic/region maps (map01/05/06/07) and
 illustrations (map04) are poor fits by nature. See `../notes.md`.
+
+---
+
+# `corpus/fa/` — Forgotten Adventures battlemaps as wall ground-truth (2026-07-19)
+
+87 **free** FA battlemaps harvested into `.dd2vtt` files (image + hand-placed
+walls + doors): **20,901 wall segments, 399 doors**, coordinate-verified. This
+is the largest clean real-map GT set in the project — walls are professional,
+hand-authored Foundry Wall documents, not pseudo-labels.
+
+**Provenance.** Walls come from the public repo
+[Forgotten-Adventures/FA_Battlemaps](https://github.com/Forgotten-Adventures/FA_Battlemaps)
+(`packs/_source/maps/*.json`, Foundry v13 scenes). Images come from FA's public
+API `api.forgotten-adventures.net` (`list` → `list-files` → `get-file` returns a
+signed S3 URL; **Free** maps need no auth, **Premium** returns 401 without a
+Patreon `userId`).
+
+**License / do NOT redistribute.** Map images are © Forgotten Adventures and are
+**not** committed to git (`corpus/fa/` is git-ignored, like the other image
+dirs). Only the harvester and these notes are tracked; the data is regenerated
+on demand. Do not publish the images or the image-bearing `.dd2vtt` files.
+
+**Reproduce** (free maps, no login):
+```
+python pipeline/fa_harvest.py --repo <FA_Battlemaps checkout> --out corpus/fa --access Free
+```
+Premium (195 more maps) needs the user's Patreon `userId` (obtained once via the
+module's OAuth): add `--access Premium --userid <uuid>`.
+
+**Coordinate handling** (see `pipeline/fa_harvest.py` docstring): walls are in
+Foundry PADDED canvas pixels; image_pixel = (canvas − pad)·scale, where
+pad = ceil(padding·dim/grid)·grid and scale = img_dim/scene_dim. Maps split into
+BG quadrant tiles (no merged `*_BG.webp`) are reconstructed by compositing the
+scene's **base** tiles only (elevation ≤ 0, no occlusion) — foreground roof/
+canopy overlays are skipped so every wall stays visible in the GT view.
+Alignment visually verified on tomb-of-horrors, feywild-throne, gibbet-crossing
+(composite), wave-echo-cave (composite).

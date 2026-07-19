@@ -18,3 +18,4 @@ __pycache__/
 scratchpad/
 corpus/ssl_real/
 corpus/ssl_pool.txt
+corpus/fa/

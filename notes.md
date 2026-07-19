@@ -1,3 +1,29 @@
+## 2026-07-19 — NEUE DATENQUELLE: Forgotten-Adventures-Battlemaps als Wall-GT (Phase A fertig)
+
+User gab Patreon-Zugang für FA. Statt Patreon-Login (nicht automatisierbar,
+ToS): **öffentliches Repo + öffentliche API** ausgenutzt.
+- Walls: `github.com/Forgotten-Adventures/FA_Battlemaps`, `packs/_source/maps/*.json`
+  (286 Foundry-v13-Szenen, handgesetzte Wall-Docs `c:[x1,y1,x2,y2]` + Türen).
+- Bilder: API `api.forgotten-adventures.net` — `list` (282 Maps: 87 Free/195
+  Premium) → `list-files` → `get-file` gibt signierte S3-URL. **Free braucht KEIN
+  Auth** (userId leer → 200); Premium → 401.
+- **Phase A DURCH: 87 Free-Maps → `corpus/fa/*.dd2vtt`, 20.901 Wandsegmente,
+  399 Türen, 0 Fehler.** Harvester `pipeline/fa_harvest.py`.
+
+Koordinaten (H7): Walls in Foundry-GEPADDETEM Canvas. `pixel=(canvas−pad)·scale`,
+`pad=ceil(padding·dim/grid)·grid`, `scale=img/scene`. FALLE: manche Bilder in 2×
+Szenenauflösung (Skala anwenden!). Gesplittete Maps (BG1..BGn statt gemergter
+`*_BG.webp`) → **Compositing nur der Basis-Tiles** (elev≤0, keine Occlusion);
+FG-Dächer/Laub WEGLASSEN, sonst verdecken sie Wände in der GT. Overlays geprüft
+(H2): tomb-of-horrors, feywild (2×), gibbet + wave-echo (composite) exakt.
+Bilder © FA → NICHT committen (`corpus/fa/` in .gitignore); reproduzierbar.
+
+Idee (User): FA-Objekt-Tiles als Non-Wall-Paste-Augmentation (Clutter drauf,
+Walls unverändert) → Robustheit/Precision. FA-Battlemaps liefern keine EINZEL-
+Objekte (in BG/FG gebacken); FG-Tiles (transparent) als Clutter-Quelle nutzbar.
+Nächste Schritte: Phase B (Premium via userId), Phase C (Paste-Aug), Phase D
+(HEAT/Graph retrain + Eval auf dd2vtt-Benchmark vs. 0.926).
+
 ## 2026-07-18 — SSL-ERGEBNISSE: HEAT/BYOL 0.926 (NEUER BESTWERT), DINO/JEPA scheitert
 
 Volle Kette durch (großer SSL-Pool 176k = 144k donjon + 633 gemalte ×50, 18%).
