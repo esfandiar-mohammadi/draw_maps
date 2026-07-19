@@ -85,12 +85,16 @@ def main():
     ap.add_argument("--stride", type=int, default=128)
     ap.add_argument("--max_per_map", type=int, default=40)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--fa", action="store_true",
+                    help="also include Forgotten-Adventures maps (corpus/fa/*.dd2vtt)")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
     files = sorted(glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True))
     for ext in ("dd2vtt", "uvtt", "json"):
         files += sorted(glob.glob(f"corpus/real_uvtt/**/*.{ext}", recursive=True))
+    if args.fa:
+        files += sorted(glob.glob("corpus/fa/**/*.dd2vtt", recursive=True))
     for d in ("density", "normals", "annot"):
         os.makedirs(os.path.join(args.out, d), exist_ok=True)
     black = np.zeros((args.crop, args.crop, 3), np.uint8)
