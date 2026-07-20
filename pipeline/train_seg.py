@@ -43,6 +43,51 @@ def color_jitter(img, rng):
     return cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
 
+_DBANK = None
+
+
+def _distractor_bank():
+    """Lazy file list of non-wall patches; empty unless DISTRACTOR_BANK is set."""
+    global _DBANK
+    if _DBANK is None:
+        d = os.environ.get("DISTRACTOR_BANK", "")
+        _DBANK = sorted(glob.glob(os.path.join(d, "*.png"))) if d and os.path.isdir(d) else []
+    return _DBANK
+
+
+def paste_distractors(img, m, rng, max_n=4):
+    """Copy-paste (Ghiasi 2021): paste feathered NON-WALL patches onto floor
+    regions (where mask==0), leaving the wall mask UNCHANGED -> the net learns
+    that added clutter/decoration is not a wall. No-op if the bank is empty."""
+    bank = _distractor_bank()
+    if not bank or rng.random() < 0.15:
+        return img
+    H, W = img.shape[:2]
+    for _ in range(rng.randint(1, max_n)):
+        patch = cv2.imread(bank[rng.randrange(len(bank))])
+        if patch is None:
+            continue
+        s = rng.randint(int(0.10 * min(H, W)), int(0.40 * min(H, W)))
+        patch = cv2.resize(patch, (s, s), interpolation=cv2.INTER_AREA)
+        patch = np.rot90(patch, rng.randint(0, 3)).copy()
+        if rng.random() < 0.5:
+            patch = patch[:, ::-1].copy()
+        # feathered elliptical alpha so the paste has no hard (wall-like) edge
+        a = np.zeros((s, s), np.float32)
+        cv2.ellipse(a, (s // 2, s // 2), (int(s * 0.42), int(s * 0.42)), 0, 0, 360, 1.0, -1)
+        a = cv2.GaussianBlur(a, (0, 0), s * 0.10)[..., None]
+        placed = False
+        for _try in range(6):  # find a spot that does NOT cover wall pixels
+            y = rng.randint(0, H - s); x = rng.randint(0, W - s)
+            if (m[y:y + s, x:x + s] > 127).mean() < 0.02:
+                placed = True; break
+        if not placed:
+            continue
+        roi = img[y:y + s, x:x + s].astype(np.float32)
+        img[y:y + s, x:x + s] = (a * patch + (1 - a) * roi).astype(np.uint8)
+    return img
+
+
 def augment(img, m, rng):
     h, w = img.shape[:2]
     # random square crop (scale variety) then resize
@@ -57,6 +102,7 @@ def augment(img, m, rng):
     if rng.random() < 0.5:
         img = img[::-1]; m = m[::-1]
     k = rng.randint(0, 3); img = np.rot90(img, k).copy(); m = np.rot90(m, k).copy()
+    img = paste_distractors(img, m, rng)   # copy-paste non-wall clutter (mask unchanged)
     img = color_jitter(img, rng)
     img = add_random_grid(img, rng)
     return img, m
