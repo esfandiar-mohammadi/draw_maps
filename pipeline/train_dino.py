@@ -86,15 +86,21 @@ def main():
     a = ap.parse_args()
     files = sorted(glob.glob(f"{a.data}/images/*.png")); random.seed(0); random.shuffle(files)
     files = files[:a.donjon_cap]   # cap donjon so real painted data keeps a high share
-    nval = max(20, int(0.1 * len(files))); va, tr = files[:nval], files[nval:]
-    real = []
+    real, fa_val = [], []
     for rd in a.real.split(","):     # comma-separated real tile dirs (like train_graph)
         rd = rd.strip()
-        if rd:
-            real += sorted(glob.glob(f"{rd}/images/*.png"))
-    tr = tr + real * a.real_mul; random.shuffle(tr)
+        if not rd:
+            continue
+        imgs = sorted(glob.glob(f"{rd}/images/*.png"))   # sorted => tiles grouped by map slug
+        if "fa" in os.path.basename(rd):   # carve a FA val split for FA-expert checkpoint selection
+            k = max(20, len(imgs) // 10); fa_val += imgs[:k]; imgs = imgs[k:]  # disjoint from fa_test
+        real += imgs
+    # FA expert: select on held-out FA tiles (NOT donjon), keep ALL donjon in train (user: donjon stays)
+    va = fa_val if fa_val else files[:max(20, len(files) // 10)]
+    tr = (files if fa_val else files[len(va):]) + real * a.real_mul; random.shuffle(tr)
     print(f"donjon {len(files)} + real {len(real)}x{a.real_mul} -> {len(tr)} train "
-          f"({100*len(real)*a.real_mul//max(1,len(tr))}% real)", flush=True)
+          f"({100*len(real)*a.real_mul//max(1,len(tr))}% real); val={len(va)} "
+          f"({'FA-holdout' if fa_val else 'donjon'})", flush=True)
     model = DinoSeg().to(DEV)
     if a.backbone_init:
         miss = model.backbone.load_state_dict(torch.load(a.backbone_init, map_location=DEV), strict=False)

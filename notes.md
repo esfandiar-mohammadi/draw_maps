@@ -1,3 +1,32 @@
+## 2026-07-20 (Ausführung) — Plan-#3 ERLEDIGT: DINO-FA-Experte (FA 0.553, dd2vtt 0.894)
+
+**DURCHBRUCH FA-Domäne.** DINO ViT-g auf donjon(8k)+dd2vtt+FA fine-getunt →
+`pipeline/models/wall_dino_fa.pt`. Ergebnisse (echter Graph-Output):
+- **FA held-out (n=51): F1 0.553** (P 0.619 / R 0.525). Von zero-shot 0.321 →
+  **+0.232**; Recall 0.253 → 0.525 (mehr als verdoppelt). **Bester FA-Einzel-Wert**
+  (schlägt Seg-U-Net 0.505 und HEAT 0.409).
+- **dd2vtt 6-hart: F1 0.894** (P 0.838 / R 0.962). Original-DINO-Graph war 0.896 →
+  praktisch ERHALTEN (−0.002). D.h. der FA-Finetune hat dd2vtt NICHT kaputt gemacht.
+- Ein einziger Experte, gut auf BEIDEN Domänen. Logs
+  `corpus/results/dino_fa_ft2_holdout.log`, `…_dd2vtt.log`.
+
+**KOMPLEMENTARITÄT für MoE bestätigt:** dd2vtt HEAT 0.926 > DINO-FA 0.894;
+FA DINO-FA 0.553 > HEAT 0.409. Gate soll dd2vtt→HEAT, FA→DINO-FA routen — genau
+der User-MoE-Aufbau. Per-Domäne-Oracle-Decke also ~max(0.926 / 0.553).
+
+**METHODEN-BUG in `train_dino.py` gefunden + gefixt (committet).** Val-Set war
+DONJON-only (`va=files[:nval]`), also selektierte Best-Tracking den DONJON-nächsten
+= WENIGST-FA-adaptierten Checkpoint (ep1). Erster FT-Lauf: donjon-val fiel
+0.409→0.324 über die Epochen — täuschte „Degradation" vor, war aber nur Drift WEG
+von donjon HIN zu real/FA. Der ep1-Checkpoint gab auf FA schon 0.538. Fix: FA-val-
+Split aus `fa_tiles` (39 Tiles, nach Map-Slug sortiert=map-kohärent, DISJUNKT von
+fa_test) als Selektions-Signal; ALLE donjon bleiben im Training (User-Vorgabe).
+Re-Run: FA-val Dice 0.583/0.579/**0.618**(ep3)/0.611/0.561/0.586 → ep3 gewählt →
+FA-Test 0.553. (ep1-0.538-Modell in scratchpad gesichert.)
+
+**Reihenfolge:** #1+#2+#3 fertig. Nächste: #4 Multi-Scale (DINO-Engpass SZ=252 —
+erst billige Multi-Scale-INFERENZ testen, bevor Architektur+Retrain), dann #5 Gate.
+
 ## 2026-07-20 (Ausführung) — Plan-Schritte #1+#2 gemessen (Seg-2x, DINO-zero-shot FA)
 
 Nach /clear den Plan (Eintrag unten) abgearbeitet. GPU seriell (1 Karte).
