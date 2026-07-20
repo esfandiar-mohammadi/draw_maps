@@ -1,3 +1,30 @@
+## 2026-07-20 (Ausführung) — Plan-#5 VORPRÜFUNG: MoE-Gate ist LOW-VALUE (Oracle-Decke gemessen)
+
+Vor dem teuren Gate-Bau die MoE-Decke gemessen (per-Map-Oracle HEAT vs DINO-FA auf
+BEIDEN Held-outs, echter Graph-Output). Log `corpus/results/moe_ceiling_permap.log`.
+
+|                     | dd2vtt 6-hart | FA held-out (n=51) |
+|---------------------|---------------|--------------------|
+| HEAT allein         | **0.925**     | 0.409              |
+| DINO-FA allein      | 0.895         | **0.567**          |
+| MoE-Oracle (perfekt)| 0.942         | 0.574              |
+
+**BEFUND: Das gelernte MoE-Gate lohnt kaum.** Ein PERFEKTER Per-Map-Router über die
+zwei Experten schlägt DINO-FA-allein nur um **+0.047 (dd2vtt) / +0.007 (FA)** — und
+das ist die unerreichbare Obergrenze. Ein echtes gelerntes Gate holt weniger; zudem
+müsste HEAT (liefert Segmente, keine Dense-Prob) für die Pixel-Fusion rasterisiert
++ neu ge-graph't werden → HEATs saubere Geometrie ginge teils verloren → Netto real
+evtl. ≈0 oder negativ. Auf FA rettet HEAT nur 4 von 51 Maps (briny-maze +0.19, sonst
+<+0.05). **DINO-FA allein IST bereits das Multi-Domänen-Modell, das der Plan wollte**
+(0.895/0.567): der FA-Finetune hat HEATs dd2vtt-Stärke praktisch absorbiert
+(0.894≈0.925) und FA dazugewonnen. Gleiche Aussage wie „FUSION WIDERLEGT" (HEAT+Seg),
+jetzt für HEAT+DINO bestätigt.
+
+**→ USER-ENTSCHEIDUNG offen (gefragt):** Gate trotzdem bauen (explizit gewünscht;
+Decke +0.047 dd2vtt) / DINO-FA als Deliverable akzeptieren + höherwertige Richtung
+(FA-Recall organische Maps, oder skeleton→graph-Verlust) / leichter Domänen-Router
+(kein Pixel-CNN) für die +0.047 dd2vtt. STAND: #1–#4 fertig, #5 pausiert bis Antwort.
+
 ## 2026-07-20 (Ausführung) — Plan-#4 Multi-Scale: +0.015 (Inferenz-Pyramide), ASPP zurückgestellt
 
 Multi-Scale-INFERENZ zuerst getestet (billig, kein Retrain): DINO-FA-Experte auf
