@@ -1,3 +1,76 @@
+## 2026-07-20 (Ausführung) — Plan-Schritte #1+#2 gemessen (Seg-2x, DINO-zero-shot FA)
+
+Nach /clear den Plan (Eintrag unten) abgearbeitet. GPU seriell (1 Karte).
+
+**GOTCHA (Zeit gekostet): 2×-Seg-Training starb bei epoch 5/12.** Kein Traceback,
+kein OOM (98 GB RAM frei), extern gekillt — mit hoher Wahrscheinlichkeit der
+Session-Teardown beim `/clear`, weil der Vorlauf NICHT detached war. Fix: neu
+gestartet mit `setsid` + venv-`python -u` (unbuffered) + `< /dev/null`, sodass er
+Teardown überlebt und keine Logzeilen verliert. ⚠️ Erste setsid-Variante scheiterte
+mit `python: command not found` (fresh setsid-Shell hat kein venv-PATH) → immer
+`/home/spark1admin/draw_maps/.venv/bin/python` absolut aufrufen. Alter ep6-Checkpoint
+(val Dice ≥0.475) nach scratchpad gesichert vor Neustart.
+
+**#1 — 2×-Seg fertig (12ep, samples 240k): best val Dice 0.544** (ep11), vs. clean-
+Baseline 0.516 (+0.028 auf Masken-Ebene). ABER **echter Graph-Output auf FA
+held-out (n=51): F1 0.505** (P 0.548 / R 0.495), excl-deg ≈0.531. Clean-Baseline
+war 0.507 / excl-deg 0.536. → **NEGATIVERGEBNIS: Mehr Seg-Training hilft dem
+Deliverable NICHT.** Die Masken-Verbesserung (+0.028 Dice) propagiert nicht durch
+`build_graph`. Bestätigt: der Skelett→Graph-Schritt ist der Flaschenhals (Plan-
+Next-Step #2), nicht die Maskenqualität. Log `corpus/results/seg_fa_graph_holdout_2x.log`.
+Checkpoint `pipeline/models/wall_graph_fa_clean2x.pt` (ep11-best).
+
+**#2 — DINO ViT-g (dd2vtt-trainiert, `wall_dino_vitg.pt`) zero-shot auf FA:
+F1 0.321** (P 0.519 / R 0.253), n=51. Die fehlende Zahl aus dem Plan. Muster:
+**hohe Precision, eingebrochene Recall (0.25)** — auf clean-dd2vtt trainiertes DINO
+ist auf FA konservativ: saubere Innenräume top (briny-maze 0.94, sewer-town 0.79,
+wooden-fort 0.74, crypt 0.76), aber **0.00 auf JEDER organischen/Außen-Map**
+(forest-river a+b, gloomy-swamp, swamp-b, jungle-rope-bridge, thicket-road, winter-
+lake, hag-tree, ilvaash). Deutlich unter Seg (0.505). Log
+`corpus/results/dino_fa_zeroshot.log`. GOTCHA: erster Lauf CUDA-OOM, weil direkt
+nach Training-Ende gestartet (Training gab VRAM auf GB10-Unified-Mem noch nicht
+frei); Retry nach GPU-frei OK. `model()` ist Singleton (kein Per-Map-Leak, geprüft).
+
+**Zwischenfazit für MoE:** Auf FA trägt Seg (Recall-stark, 0.505) die Basis, DINO
+(Precision-stark, Recall-schwach) ist im aktuellen Zustand KEIN FA-Experte — genau
+deshalb Plan-#3: DINO auf donjon(cap)+dd2vtt+FA fine-tunen, um FA-Recall zu heben.
+LÄUFT (siehe unten). Reihenfolge #3→#4→#5 unverändert.
+
+## 2026-07-20 (Plan) — GELERNTES MoE(HEAT,DINO) + MULTI-SCALE, ALLE DOMÄNEN (User-Auftrag)
+
+User-Entscheidung: **alle Domänen abdecken** (dd2vtt + FA + …), **gelerntes MoE-Gate**,
+**donjon bleibt in JEDEM Training** (170k Tiles, damit dd2vtt-Erkenntnisse bleiben),
+Architektur **aufbohren + Multi-Scale**. Ausgangslage: HEAT 0.926 (dd2vtt)/0.409 (FA);
+Seg-U-Net 0.507 (FA). WICHTIG (heute belegt): HEAT↔Seg-Oracle auf FA nur +0.017 →
+auf FA trägt HEAT fast nichts; die Komplementarität HEAT+DINO ist eine dd2vtt-Sache
+(Oracle ~0.94). Ein MoE über ALLE Domänen ist daher sinnvoll: HEAT trägt dd2vtt,
+DINO/Seg trägt FA; das Gate lernt die Zuordnung pro Pixel/Region.
+
+**Architektur (Ziel):** zwei Experten → je eine Wand-Wahrscheinlichkeitskarte →
+Gating-CNN über `[Bild, prob_HEAT, prob_DINO]` → per-Pixel-Gewichte → fusionierte
+Wandkarte → `build_graph` → **piecewise-linear-Graph (H4 gewahrt)**. Gate wird PRO
+PIXEL auf dem vollen Pool trainiert (Supervision = Per-Tile-GT-Übereinstimmung je
+Experte) → Datenmenge unkritisch (kein Map-Level-Overfit).
+- **Experte HEAT**: Grundriss (Ecken+Geraden), stark dd2vtt.
+- **Experte DINO ViT-g**: Segmentierung (kurvenfähig), FA/organisch. Fine-Tune auf
+  donjon(cap)+dd2vtt+FA. `train_dino.py` gepatcht: `--real` jetzt komma-getrennt
+  (FA-Tiles einbeziehbar); donjon via `--donjon_cap` (default 8000, bewusst
+  gedeckelt für teures ViT-g bs8 — donjon bleibt drin).
+- **Multi-Scale**: DINO sieht Kacheln nur bei SZ=252 (Hauptengpass; forward() kann
+  aber beliebiges SZ). Hebel: (a) ASPP/dilated-Decoder (Filter mehrerer Dilations-
+  raten = „mehrere Auflösungen", DeepLabV3+-Stil); (b) Multi-Scale-Inferenz
+  (Pyramide, prob-Karten fusionieren). Erst durch build_graph-Fix voll nutzbar.
+
+**Reihenfolge (seriell, 1 GPU):**
+1. [läuft] 2×-Seg (`wall_graph_fa_clean2x.pt`, samples 240k/12ep) fertig → auf FA
+   messen (echter Graph-Output). Prüft, ob „mehr Training" der Seg-Familie hilft.
+2. DINO-Graph (`wall_dino_vitg.pt`, dd2vtt-trainiert) zero-shot auf FA messen
+   (fehlende Zahl; graph_eval_dino --fa_test).
+3. DINO auf donjon(cap)+dd2vtt+FA fine-tunen (der FA-Experte) → FA + dd2vtt messen.
+4. Multi-Scale-Decoder (ASPP/höheres SZ) → messen.
+5. Gating-CNN trainieren → auf BEIDEN Held-outs (dd2vtt-6-hart + FA-51) vs. Experten
+   + Oracle.
+
 ## 2026-07-20 (Fortsetzung) — SAUBERE FA-BASELINE etabliert (nach Tile-Rebuild)
 
 Nach dem Re-Harvest (267 Maps, 0 schwarz) die versprochenen Schritte 1–2 gemacht.

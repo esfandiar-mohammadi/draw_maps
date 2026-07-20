@@ -87,7 +87,12 @@ def main():
     files = sorted(glob.glob(f"{a.data}/images/*.png")); random.seed(0); random.shuffle(files)
     files = files[:a.donjon_cap]   # cap donjon so real painted data keeps a high share
     nval = max(20, int(0.1 * len(files))); va, tr = files[:nval], files[nval:]
-    real = sorted(glob.glob(f"{a.real}/images/*.png")); tr = tr + real * a.real_mul; random.shuffle(tr)
+    real = []
+    for rd in a.real.split(","):     # comma-separated real tile dirs (like train_graph)
+        rd = rd.strip()
+        if rd:
+            real += sorted(glob.glob(f"{rd}/images/*.png"))
+    tr = tr + real * a.real_mul; random.shuffle(tr)
     print(f"donjon {len(files)} + real {len(real)}x{a.real_mul} -> {len(tr)} train "
           f"({100*len(real)*a.real_mul//max(1,len(tr))}% real)", flush=True)
     model = DinoSeg().to(DEV)

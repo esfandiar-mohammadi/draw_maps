@@ -3,17 +3,45 @@
 > ⏩⏩ **RESUME HERE — Stand 2026-07-20 (nach `/clear` ZUERST lesen).**
 > Dieser Block ist die Kurzfassung zum Weitermachen.
 >
-> **🔴 AKTUELLER FOKUS (2026-07-20): FA-Domänen-F1 heben.** Details im OBERSTEN
-> notes.md-Eintrag (2026-07-20) — dort steht der volle Stand inkl. nächster
-> Schritte. Kurz: Forgotten-Adventures-Battlemaps als Wall-GT geharvestet (267
-> Maps, `pipeline/fa_harvest.py`, `corpus/fa/`), 20% Held-out `corpus/fa_test.txt`.
-> HEAT stagniert auf FA bei ~0.5 (scheitert an organischen Außen-Maps: malt Raster
-> über Seen/Sümpfe). Seg-U-Net (`wall_graph_fa.pt`) auch nur ~0.51. ABER: Daten-Bug
-> gefunden+gefixt (20 schwarze Bilder, jetzt 0). NÄCHSTE SCHRITTE stehen in notes.md:
-> (1) `corpus/fa_tiles` neu bauen, (2) HEAT+Seg auf BEREINIGTEM Held-out neu messen,
-> (3) build_graph-Hang fixen, (4) Style-Aug + HEAT↔Seg-Fusion. **Output MUSS
-> piecewise-linear bleiben (Geradenstück-Graph); Segmentierung nur intern.**
-> Kein Prozess läuft mehr (Re-Harvest fertig). GPU frei.
+> **▶️ BEI „mach weiter": (1) diesen Block lesen, (2) `notes.md` OBERSTE 2 Einträge
+> („Ausführung" + „Plan") lesen, (3) prüfen ob der DINO-Fine-Tune fertig ist
+> (`grep "best Dice=" corpus/results/train_dino_fa.log`; Modell
+> `pipeline/models/wall_dino_fa.pt`), (4) mit dem ersten offenen der 5 Plan-Schritte
+> weitermachen. Kein Rückfragen nötig — der Plan ist vom User freigegeben.**
+>
+> **STAND 2026-07-20 (Ausführung, siehe notes.md-Top):** Plan-#1 + #2 ERLEDIGT.
+> #1 2×-Seg fertig (best val Dice 0.544) → echter FA-Graph-Output **0.505** =
+> KEIN Gewinn ggü. clean 0.507 → mehr Seg-Training hilft dem Deliverable NICHT
+> (build_graph ist der Flaschenhals). #2 DINO ViT-g zero-shot FA **0.321**
+> (Precision 0.52 / Recall 0.25, 0.00 auf allen organischen Maps). #3 LÄUFT:
+> DINO-Fine-Tune auf donjon(8k)+dd2vtt+FA → `wall_dino_fa.pt`
+> (`corpus/results/train_dino_fa.log`, 6ep, setsid/überlebt-/clear). Danach #4
+> Multi-Scale-Decoder, #5 Gate.
+>
+> **🔴 AKTUELLER FOKUS (2026-07-20 Nachmittag): GELERNTES MoE(HEAT,DINO) +
+> MULTI-SCALE über ALLE Domänen.** Voller Plan + Stand in den OBERSTEN 3
+> notes.md-Einträgen. Kurzfassung:
+> - **build_graph-Hang GEFIXT** (`graph_infer.py`, committet 5475253): O(V²)/O(E²)
+>   → Raum-Hash-Snap + Worklist-Merge; warehouse@2048 >110s→0.7s, Output identisch.
+>   `--fast` nicht mehr nötig; echter piecewise-linear-Output läuft voll-auflösend.
+> - **Saubere FA-Baselines** (51-Map-Held-out, nach Re-Harvest+Tile-Rebuild):
+>   HEAT/BYOL zero-shot 0.409 (excl-deg 0.432); **Seg-U-Net `wall_graph_fa_clean.pt`
+>   echter Graph-Output 0.507 (excl-deg 0.536)**, Masken-UB 0.559. **Seg > HEAT auf FA.**
+> - **FUSION-THESE WIDERLEGT:** Per-Map-Oracle max(HEAT,Seg) nur +0.017 über Seg.
+>   HEAT↔DINO-Komplementarität ist eine dd2vtt-Sache, nicht FA.
+> - **USER-AUFTRAG:** MoE(HEAT,DINO) mit **gelerntem Gate**, beide fine-tunen,
+>   **donjon (170k) bleibt in JEDEM Training**, Architektur **aufbohren + Multi-Scale**
+>   (DINO-Engpass SZ=252). ALLE Domänen abdecken. Gate PRO PIXEL auf vollem Pool →
+>   `[Bild,prob_HEAT,prob_DINO]`→Fusion→build_graph→**piecewise-linear (H4)**.
+> - **LÄUFT (nohup, überlebt /clear):** 2×-Seg `wall_graph_fa_clean2x.pt`
+>   (samples 240k/12ep, Log `corpus/results/train_seg_fa_clean2x.log`) — prüft ob
+>   mehr Training hilft. Bei /clear-Resume: Log/mtime prüfen, ob fertig, dann messen
+>   (`WALL_GRAPH_CKPT=…clean2x.pt python pipeline/graph_eval_uvtt.py --fa_test --per_map`).
+> - **Task-Liste #1–#5** = die 5 Schritte (2x-Seg messen → DINO zero-shot FA →
+>   DINO-Fine-Tune inkl FA → Multi-Scale-Decoder → Gate). Reihenfolge/Details in
+>   notes.md-Eintrag „(Plan)". `train_dino.py` gepatcht (`--real` komma-getrennt,
+>   NICHT committet — erst nach erstem DINO-Lauf verifizieren+committen).
+> - **Output MUSS piecewise-linear bleiben; Segmentierung nur intern.**
 >
 > **Nach `/clear` in dieser Reihenfolge lesen:**
 > 1. **Diesen RESUME-Block** (bis „GOTCHAS" unten) — Gesamtstand in Kurzform.
@@ -47,11 +75,13 @@
 > Domäne — BYOL robust). Nächster Hebel: DINO+HEAT-Ensemble (Oracle-per-map
 > ~0.94). Produkt-Plus HEAT: 49M Params, nativ wenige gerade Segmente (H4).
 >
-> ### Was GERADE läuft: NICHTS (Stand 2026-07-19)
-> Alle Trainings/Experimente abgeschlossen, GPU frei, git sauber (commit 2a86136+).
-> Die SSL→Finetune-Kette (JEPA für DINO, BYOL für HEAT, auf 176k-Pool) ist DURCH.
-> Ergebnis: HEAT/BYOL 0.926 (neuer Bestwert), DINO/JEPA gescheitert (0.36, Collapse).
-> KEINE Hintergrundprozesse mehr — nichts zu überwachen/fortzusetzen.
+> ### Was GERADE läuft (Stand 2026-07-20 Nachmittag)
+> **2×-Seg-Training** (nohup PID kann tot sein nach /clear, aber Prozess läuft
+> weiter; Log `corpus/results/train_seg_fa_clean2x.log`, Modell
+> `pipeline/models/wall_graph_fa_clean2x.pt`). RESUME: prüfen ob „best wall Dice"
+> im Log steht (=fertig); wenn ja, Task #1 (messen) und weiter mit #2–#5.
+> Die frühere SSL→Finetune-Kette ist durch: HEAT/BYOL 0.926 (dd2vtt-Bestwert),
+> DINO/JEPA gescheitert (0.36, Collapse). GPU: 1 Karte, Jobs SERIELL fahren.
 > GOTCHA aus dieser Runde (notes 2026-07-17): Orchestrator-Warteschleifen NIE auf
 > `pgrep -f "train_X.py"` — matcht eigene Beobachter-Kommandos (Selbstmatch), hing
 > ~20h. Auf Artefakt/Logzeile warten, nicht auf Prozessnamen.
