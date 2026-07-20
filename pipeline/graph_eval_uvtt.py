@@ -19,7 +19,7 @@ def dil(mask, tol):
     return cv2.dilate(mask.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
 
 
-def evalmap(path, long_edge=1024):
+def evalmap(path, long_edge=1024, fast=False):
     r = load_uvtt(path)
     if r["image"] is None or not r["walls"]:
         return None
@@ -27,10 +27,17 @@ def evalmap(path, long_edge=1024):
     sc = min(1.0, long_edge / max(H0, W0))
     work = cv2.resize(r["image"], (round(W0 * sc), round(H0 * sc)), interpolation=cv2.INTER_AREA)
     wall, junc = graph_infer.predict(work)
-    nodes, edges = graph_infer.build_graph(wall, junc)
-    pred_segs = [(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1]) for a, b, t in edges]
     gt = raster([(x0 * sc, y0 * sc, x1 * sc, y1 * sc) for x0, y0, x1, y1 in r["walls"]], work.shape[:2])
-    pred = raster(pred_segs, work.shape[:2])
+    if fast:
+        # mask-level centreline F1 (skips build_graph): skeleton of the predicted
+        # wall footprint vs GT centreline. Upper bound on the graph-output F1.
+        from skimage.morphology import skeletonize
+        binp = cv2.morphologyEx((wall > 0.4).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        pred = skeletonize(binp.astype(bool))
+    else:
+        nodes, edges = graph_infer.build_graph(wall, junc)
+        pred_segs = [(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1]) for a, b, t in edges]
+        pred = raster(pred_segs, work.shape[:2])
     if pred.sum() == 0:
         return (0.0, 0.0, 0.0)
     tol = max(4, 0.4 * r["ppg"] * sc)
@@ -45,6 +52,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fa_test", action="store_true")
     ap.add_argument("--per_map", action="store_true")
+    ap.add_argument("--fast", action="store_true",
+                    help="mask-level centreline F1, skip build_graph (upper bound)")
     a = ap.parse_args()
     if a.fa_test:
         slugs = [ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()]
@@ -59,7 +68,7 @@ def main():
     for n, p in maps:
         if not p or not os.path.exists(p):
             continue
-        r = evalmap(p)
+        r = evalmap(p, fast=a.fast)
         if r is None:
             continue
         P, R, F = r; Ps.append(P); Rs.append(R); Fs.append(F)

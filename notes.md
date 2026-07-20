@@ -1,3 +1,89 @@
+## 2026-07-20 — FA-DOMÄNE: Diagnose, Seg-Weg, DATEN-BUG gefunden (schwarze Bilder)
+
+Ziel (User): FA-Domänen-F1 über 0.5 heben; 20% der FA-Maps als echtes Held-out.
+KLARE ERKENNTNISSE dieser Session (nach `/clear` hier weiterlesen):
+
+**Setup.** 20% FA held-out = `corpus/fa_test.txt` (55 Maps, deterministisch jede
+5.). Training schließt sie aus (0 Leck verifiziert). Eval-Skripte haben jetzt
+`--fa_test` (heat_eval_uvtt, graph_eval_uvtt, graph_eval_dino).
+
+**Baselines auf 55 FA held-out (Achtung: noch MIT 7 schwarzen Bildern gemessen,
+also zu niedrig!):**
+- HEAT/BYOL 0.926-Modell (sah nie FA), zero-shot: **F1 0.360**.
+- HEAT auf FA weitertrainiert (Warm-Start vom 0.926): FA 0.36→~**0.50** (Peak
+  früh ~ep53), dd2vtt 0.926→0.88–0.91. MEHR EPOCHEN HELFEN NICHT.
+- Seg/Graph-U-Net auf FA trainiert (`wall_graph_fa.pt`), Masken-Level (obere
+  Schranke, `--fast`): FA **0.511** (Baseline ohne FA 0.364; +0.147 durch FA).
+  dd2vtt 6-hart Masken-Level 0.660.
+
+**DIAGNOSE HEAT-Versagen (belegt via Overlay):** HEAT scheitert an AUSSEN-/
+ORGANISCHEN Maps (Sümpfe/Flüsse/Seen/Höhlen) — malt ein RECHTECKIGES RASTER über
+z.B. den zugefrorenen See (`winter-lake` F1 0.00), weil sein Ecken+Geraden-
+Floorplan-Prior keine gekrümmten Naturgrenzen kann. ABER: das Seg-Modell (kann
+Kurven) erreicht auch nur ~0.51 und scheitert an DENSELBEN Maps → Architektur
+allein war NICHT die Antwort.
+
+**⚠️ DATEN-BUG (der eigentliche Haupthebel, TEILWEISE GEFIXT):** 20 von 274 FA-
+Bildern waren SCHWARZ/kaputt. Ursache: viele Premium-Maps benennen die volle
+Karte `*-gridless-*.webp` / `*_Gridless_*.webp`, mein `pick_bg_file` suchte nur
+`bg.webp` → Fallback-Compositing ergab Schwarz. 7 der 20 lagen im 55-Map-Test →
+scoren auto ~0 und drücken alle obigen Zahlen; ~13 vergifteten das Training.
+`abandoned-cathedral` (saubere Kathedrale!) bekam nur wegen schwarzem Bild 0.00.
+FIX in `fa_harvest.py`: `pick_bg_candidates()` bevorzugt `gridless`-Vollkarten
+(größte zuerst), Helligkeits-Guard `_black()` (near-black → nächster Kandidat →
+Composite → sonst Map verwerfen). **Re-Harvest ABGESCHLOSSEN: 267 Maps, 0 schwarz.**
+13 der 20 recovered (jetzt `via=single`), 12 korrekt verworfen (nur Nacht-/
+lightless-Variante vorhanden). fa_test: 51 von 55 Slugs noch vorhanden (4 waren
+night-only → Eval überspringt fehlende Dateien automatisch, ist ok).
+
+**GEDANKENFEHLER-KORREKTUR:** Die 0.51/0.49 sind auf verschmutztem Test gemessen.
+Nach sauberem Re-Harvest neu messen — echte Zahlen dürften spürbar höher liegen.
+Manche Natur-Maps sind zudem degeneriert (winter-lake hat nur 4 GT-Wände = quasi
+Kartenrand) → F1 dort verrauscht; ggf. aus Eval nehmen/kennzeichnen.
+
+**build_graph HÄNGT** auf großen dichten organischen FA-Masken (6h CPU-Hang, GPU
+0%). Deshalb `--fast` (Masken-Level Mittellinien-F1, überspringt build_graph) in
+graph_eval_uvtt. FÜR ECHTEN piecewise-linear-Output muss build_graph skalierbar
+gemacht werden (User besteht auf Geradenstück-Graph als Output; Segmentierung ist
+nur die INTERNE Repräsentation — das ist ok).
+
+### NÄCHSTE SCHRITTE (Reihenfolge)
+1. Re-Harvest fertig? → `python - <<black-check>` (siehe unten); Ziel: 0 schwarz,
+   ~274 Maps. `corpus/fa_tiles/` NEU bauen (`build_real_tiles.py --only fa --out
+   corpus/fa_tiles`) — die alten Tiles enthalten ~13 schwarze Trainingsmaps.
+2. HEAT + Seg-U-Net auf BEREINIGTEM 55-Held-out neu messen (Seg mit `--fast`).
+   Ehrliche FA-Baseline etablieren.
+3. build_graph skalierbar fixen (echter Geradenstück-Output auf großen Maps).
+4. Dann Hebel (aus 3 Recherche-Reports dieser Session, s. Memory): (a) masken-
+   erhaltende Style-/Foto-Augmentation gegen TEXTUR-BIAS (gemalt vs flach); (b)
+   Skeleton-Recall-Loss (clDice-Upgrade) + cbDice; (c) HEAT↔Seg OUTPUT-FUSION
+   (Segment-Graphen kalibrieren+mergen, MoCaE) — höchste Decke, kann Oracle
+   übertreffen; ZUERST 2-Experten-Per-Map-Oracle auf FA berechnen (dd2vtt-Oracle
+   nur ~0.014, FA-Oracle vermutlich groß). MoE/Router: einfacher Confidence-/
+   Style-Router schlägt schweres gelerntes Gate bei dieser Datenmenge.
+
+### Black-Check (nach Re-Harvest laufen lassen)
+```
+python - <<'PY'
+import glob,os,sys,numpy as np; sys.path.insert(0,"pipeline"); from uvtt import load
+bad=[f for f in glob.glob("corpus/fa/*.dd2vtt")
+     if (lambda im: im is None or im.mean()<8 or (im.max(2)<20).mean()>.97)(load(f)["image"])]
+print(len(glob.glob("corpus/fa/*.dd2vtt")),"maps,",len(bad),"black:",[os.path.basename(b) for b in bad])
+PY
+```
+
+### Checkpoints/Artefakte dieser Session
+- `pipeline/models/wall_graph_fa.pt` — Seg-U-Net auf donjon+dd2vtt-real+FA (real_mul
+  65), Masken-FA 0.511. (Auf verschmutzten Tiles trainiert → nach Tile-Rebuild neu.)
+- `vendor/heat/checkpoints/ckpts_heat_byol_fa_cont` — HEAT auf ALLEN 274 (inkl.
+  Test → KONTAMINIERT, nicht für Eval nutzen). Sauberer Ausgang bleibt
+  `ckpts_heat_byol_full/checkpoint_best.pth` (0.926, sah nie FA).
+- `corpus/fa_test.txt` — 55 Held-out-Slugs. Premium-userId (has_premium bis
+  2026-08-19): `23cfe67f-7e2c-4444-af9d-f57084819085`.
+- vendor/heat-Patches (git-ignored!): `train.py --save_every N` (Snapshots),
+  `arguments.py`. data-Symlink `vendor/heat/data/s3d_floorplan → corpus/heat_data_fa`
+  (NICHT mehr baseline heat_data — für dd2vtt-only-Training zurückzeigen!).
+
 ## 2026-07-19 — NEUE DATENQUELLE: Forgotten-Adventures-Battlemaps als Wall-GT (Phase A fertig)
 
 User gab Patreon-Zugang für FA. Statt Patreon-Login (nicht automatisierbar,

@@ -1,7 +1,19 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩ **RESUME HERE — Stand 2026-07-19 (nach `/clear` ZUERST lesen).**
+> ⏩⏩ **RESUME HERE — Stand 2026-07-20 (nach `/clear` ZUERST lesen).**
 > Dieser Block ist die Kurzfassung zum Weitermachen.
+>
+> **🔴 AKTUELLER FOKUS (2026-07-20): FA-Domänen-F1 heben.** Details im OBERSTEN
+> notes.md-Eintrag (2026-07-20) — dort steht der volle Stand inkl. nächster
+> Schritte. Kurz: Forgotten-Adventures-Battlemaps als Wall-GT geharvestet (267
+> Maps, `pipeline/fa_harvest.py`, `corpus/fa/`), 20% Held-out `corpus/fa_test.txt`.
+> HEAT stagniert auf FA bei ~0.5 (scheitert an organischen Außen-Maps: malt Raster
+> über Seen/Sümpfe). Seg-U-Net (`wall_graph_fa.pt`) auch nur ~0.51. ABER: Daten-Bug
+> gefunden+gefixt (20 schwarze Bilder, jetzt 0). NÄCHSTE SCHRITTE stehen in notes.md:
+> (1) `corpus/fa_tiles` neu bauen, (2) HEAT+Seg auf BEREINIGTEM Held-out neu messen,
+> (3) build_graph-Hang fixen, (4) Style-Aug + HEAT↔Seg-Fusion. **Output MUSS
+> piecewise-linear bleiben (Geradenstück-Graph); Segmentierung nur intern.**
+> Kein Prozess läuft mehr (Re-Harvest fertig). GPU frei.
 >
 > **Nach `/clear` in dieser Reihenfolge lesen:**
 > 1. **Diesen RESUME-Block** (bis „GOTCHAS" unten) — Gesamtstand in Kurzform.

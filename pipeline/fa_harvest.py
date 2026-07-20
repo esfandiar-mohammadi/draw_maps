@@ -85,18 +85,29 @@ def pad_offset(d):
     return px, py, g
 
 
-def pick_bg_file(files_json):
-    """Choose a MERGED full-map background from the file manifest, if one
-    exists. Matches '...bg.webp' with no digit before .webp (so the merged
-    'TombOfHorrors_BG.webp' / 'fungicavernbg.webp' match, but the split
-    quadrant tiles 'GibbetCrossingBG1.webp' do NOT). Split maps have no merged
-    file -> return None and let the caller composite from scene tiles."""
+def pick_bg_candidates(files_json):
+    """Ranked list of single-file full-map candidates (largest first). FA uses
+    several conventions for the flattened battlemap:
+      - '<name>_BG.webp' / 'fungicavernbg.webp'   (merged, no digit)
+      - '<name>_Gridless_<W>x<H>_200ppi.webp' / '<name>-bare-gridless-...'
+        (the flattened full battlemap — many Premium maps only ship this)
+    Split-quadrant maps ('...BG1.webp') expose no such file -> empty list, and
+    the caller composites from scene tiles. We return several candidates so the
+    caller can skip a near-black one and try the next."""
     imgs = files_json.get("files", {}).get("images", [])
-    maps = [f for f in imgs if "/maps/" in f["path"].lower()]
-    merged = [f for f in maps if re.search(r"bg\.webp$", f["path"].lower())]
-    if merged:
-        return max(merged, key=lambda f: f["size"])
-    return None
+    maps = [f for f in imgs if "/maps/" in f["path"].lower()
+            and f["path"].lower().endswith(".webp")]
+    cands = []
+    for f in maps:
+        name = f["path"].split("/")[-1].lower()
+        if re.search(r"bg\.webp$", name) or "gridless" in name:
+            cands.append(f)
+    return sorted(cands, key=lambda f: -f["size"])
+
+
+def pick_bg_file(files_json):
+    c = pick_bg_candidates(files_json)
+    return c[0] if c else None
 
 
 # filename keywords that mark a tile as a NON-base overlay (roofs/canopies/
@@ -265,29 +276,37 @@ def main():
                 miss_file += 1
                 print(f"  [skip:list-files {st}] {m['name']}", flush=True)
                 continue
-            # Primary: a single merged full-map file. Accept only if its aspect
-            # matches the scene (clean N x scale). Otherwise composite the base
-            # tiles from the scene (split-quadrant maps have no merged file).
+            # Primary: a single full-map file (merged BG or flattened gridless).
+            # Accept only if its aspect matches the scene AND it is not near-black
+            # (some maps only ship a lightless/night variant, or the wrong file).
+            # Try candidates largest-first; else composite base tiles; a near-
+            # black result at every stage -> skip the map (never poison the set).
+            def _black(im):
+                return im is None or im.mean() < 8 or (im.max(axis=2) < 20).mean() > 0.97
             img = None
             via = None
-            bg = pick_bg_file(fj)
-            if bg:
+            for bg in pick_bg_candidates(fj):
                 url = sign_url(m["id"], bg["path"], args.userid)
-                if url:
-                    st, raw = http_get(url, timeout=240)
-                    if st == 200:
-                        cand = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
-                        if cand is not None:
-                            H, W = cand.shape[:2]
-                            sx, sy = W / d["width"], H / d["height"]
-                            if abs(sx - sy) <= 0.02:  # aspect matches scene
-                                img, via = cand, "single"
+                if not url:
+                    continue
+                st, raw = http_get(url, timeout=240)
+                if st != 200:
+                    continue
+                cand = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+                if cand is None:
+                    continue
+                H, W = cand.shape[:2]
+                sx, sy = W / d["width"], H / d["height"]
+                if abs(sx - sy) <= 0.02 and not _black(cand):
+                    img, via = cand, "single"
+                    break
             if img is None:
-                img = compose_base_image(d, m["id"], args.userid, px, py)
-                via = "composite"
+                comp = compose_base_image(d, m["id"], args.userid, px, py)
+                if comp is not None and not _black(comp):
+                    img, via = comp, "composite"
             if img is None:
                 miss_file += 1
-                print(f"  [skip:no-image] {m['name']}", flush=True)
+                print(f"  [skip:no-usable-image] {m['name']}", flush=True)
                 continue
             H, W = img.shape[:2]
             sx, sy = W / d["width"], H / d["height"]
