@@ -1,3 +1,22 @@
+## 2026-07-20 (Ausführung) — Plan-#4 Multi-Scale: +0.015 (Inferenz-Pyramide), ASPP zurückgestellt
+
+Multi-Scale-INFERENZ zuerst getestet (billig, kein Retrain): DINO-FA-Experte auf
+mehreren long_edge-Skalen laufen lassen, prob-Karten fusionieren, dann build_graph.
+Neues Skript `pipeline/graph_eval_dino_ms.py`.
+- scales {768,1024,1536}: **FA held-out F1 0.568** (P 0.665 / R 0.516) — +0.015 über
+  Single-Scale 0.553, GESCHENKT (nur Inferenz). Gewinn ist Precision (0.62→0.67):
+  Mittelung über Skalen unterdrückt skalen-spezifische Falsch-Wände.
+- scales {1024,1536,2048} (feiner): 0.563 — SCHLECHTER. Höhere Auflösung hilft
+  nicht. Logs `corpus/results/dino_fa_ms.log`, `…_ms2.log`.
+
+**ENTSCHEIDUNG (evidenzbasiert): ASPP-Decoder-Retrain (#4b) ZURÜCKGESTELLT als
+low-ROI.** Begründung: die Inferenz-Pyramide hat den Multi-Scale-Nutzen schon
+billig geholt (+0.015), und feinere Skalen halfen NICHT — die organischen Maps
+(forest-river/swamp = 0.00) scheitern SEMANTISCH, nicht an der Auflösung. Skala ist
+also nicht der FA-Flaschenhals. ASPP bliebe ein optionaler Hebel, aber der
+höchste-Wert-Schritt ist jetzt #5 (das gelernte MoE-Gate = Kern-Auftrag des Users).
+Multi-Scale-Inferenz {768,1024,1536} wird als DINO-Inferenzmodus übernommen.
+
 ## 2026-07-20 (Ausführung) — Plan-#3 ERLEDIGT: DINO-FA-Experte (FA 0.553, dd2vtt 0.894)
 
 **DURCHBRUCH FA-Domäne.** DINO ViT-g auf donjon(8k)+dd2vtt+FA fine-getunt →
