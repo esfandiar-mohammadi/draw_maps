@@ -3,24 +3,43 @@
 > ⏩⏩ **RESUME HERE — Stand 2026-07-20 (nach `/clear` ZUERST lesen).**
 > Dieser Block ist die Kurzfassung zum Weitermachen.
 >
-> **▶️ BEI „mach weiter": (1) diesen Block lesen, (2) `notes.md` OBERSTE 2 Einträge
-> („Ausführung" + „Plan") lesen, (3) prüfen ob der DINO-Fine-Tune fertig ist
-> (`grep "best Dice=" corpus/results/train_dino_fa.log`; Modell
-> `pipeline/models/wall_dino_fa.pt`), (4) mit dem ersten offenen der 5 Plan-Schritte
-> weitermachen. Kein Rückfragen nötig — der Plan ist vom User freigegeben.**
+> **▶️ BEI „continue"/„mach weiter" (Stand 2026-07-20 Abend):**
+> (1) diesen Block lesen, (2) `notes.md` OBERSTEN Eintrag („Copy-Paste") lesen,
+> (3) prüfen ob das COPY-PASTE-Training fertig ist:
+> `grep "best Dice=\|wall val Dice" corpus/results/train_dino_fa_cp.log`
+> (Prozess: `pgrep -f "wall_dino_fa_cp"`; Modell `pipeline/models/wall_dino_fa_cp.pt`;
+> läuft via setsid, überlebt /clear; der Notify-Waiter aus der Vorsession ist tot →
+> Status per Log/Prozess selbst prüfen).
+> (4a) WENN fertig: auf FA held-out UND dd2vtt-6-hart evaluieren, vergleichen mit
+> Baseline **FA 0.567 (single) / 0.568 (multi-scale), dd2vtt 0.894**:
+> `.venv/bin/python pipeline/graph_eval_dino.py --ckpt pipeline/models/wall_dino_fa_cp.pt --tag CP --fa_test --per_map`
+> (FA) und ohne `--fa_test` (dd2vtt). Für Multi-Scale: `graph_eval_dino_ms.py`.
+> Ergebnis in notes.md + committen. Wenn Copy-Paste hilft → als nächstes
+> Style-Randomization / Skeleton-Recall-Loss (siehe notes „Copy-Paste"-Eintrag,
+> Research-Shortlist). Wenn nicht → dem User berichten.
+> (4b) GPU ist 1 Karte, seriell. Lange Jobs IMMER mit
+> `setsid bash -c 'export …; /abs/pfad/.venv/bin/python -u …'` starten (überlebt
+> /clear; venv-PATH absolut, sonst `python: command not found`).
 >
-> **STAND 2026-07-20 (Ausführung, siehe notes.md-Top):** Plan-#1 + #2 ERLEDIGT.
-> #1 2×-Seg fertig (best val Dice 0.544) → echter FA-Graph-Output **0.505** =
-> KEIN Gewinn ggü. clean 0.507 → mehr Seg-Training hilft dem Deliverable NICHT
-> (build_graph ist der Flaschenhals). #2 DINO ViT-g zero-shot FA **0.321**
-> (Precision 0.52 / Recall 0.25, 0.00 auf allen organischen Maps). #3 LÄUFT:
-> DINO-Fine-Tune auf donjon(8k)+dd2vtt+FA → `wall_dino_fa.pt`
-> (`corpus/results/train_dino_fa.log`, 6ep, setsid/überlebt-/clear). Danach #4
-> Multi-Scale-Decoder, #5 Gate.
+> **STAND (was erledigt ist): Der 5-Schritt-MoE-Plan ist DURCH, mit klarem Ergebnis:**
+> #1 2×-Seg → FA-Graph 0.505 (kein Gewinn; build_graph ist Flaschenhals).
+> #2 DINO zero-shot FA 0.321. #3 **DINO-FA-Experte fine-getunt → FA 0.553/0.568(MS),
+> dd2vtt 0.894** (bestes FA-Modell, `wall_dino_fa.pt`; Bugfix: FA-val-Split statt
+> donjon-val). #4 Multi-Scale-Inferenz +0.015 (ASPP zurückgestellt, low-ROI).
+> #5 **MoE-Gate VERWORFEN** — Oracle-Decke nur +0.047(dd2vtt)/+0.007(FA) über
+> DINO-FA-allein → Gate lohnt nicht (wie „Fusion widerlegt" zuvor). NEUE RICHTUNG
+> (User): **Copy-Paste-Augmentation** (non-wall-Clutter einpasten, Wandmaske gleich)
+> gegen FA-Fehler — LÄUFT gerade (`wall_dino_fa_cp.pt`).
 >
-> **🔴 AKTUELLER FOKUS (2026-07-20 Nachmittag): GELERNTES MoE(HEAT,DINO) +
-> MULTI-SCALE über ALLE Domänen.** Voller Plan + Stand in den OBERSTEN 3
-> notes.md-Einträgen. Kurzfassung:
+> **AKTUELLER BESTWERT FA: DINO-FA `wall_dino_fa.pt` = 0.568 (multi-scale
+> {768,1024,1536}) / 0.553 (single), dd2vtt 0.894.** dd2vtt-Bestwert bleibt HEAT
+> 0.926. HEAT+DINO NICHT fusionieren (Oracle-Decke zu niedrig, belegt).
+>
+> **⬇️ HISTORIE / ÜBERHOLT (der MoE-Plan unten wurde ABGEARBEITET; Ergebnis siehe
+> STAND oben — Gate verworfen, DINO-FA ist der Gewinner). Nur noch Kontext:**
+>
+> **🔴 (ÜBERHOLT) FOKUS war: GELERNTES MoE(HEAT,DINO) + MULTI-SCALE über ALLE
+> Domänen.** Kurzfassung des damaligen Plans:
 > - **build_graph-Hang GEFIXT** (`graph_infer.py`, committet 5475253): O(V²)/O(E²)
 >   → Raum-Hash-Snap + Worklist-Merge; warehouse@2048 >110s→0.7s, Output identisch.
 >   `--fast` nicht mehr nötig; echter piecewise-linear-Output läuft voll-auflösend.

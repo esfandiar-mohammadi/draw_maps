@@ -1,3 +1,36 @@
+## 2026-07-20 (Abend) — Copy-Paste-Augmentation (User-Idee) LÄUFT; Research-Shortlist
+
+**Pivot:** MoE-Gate verworfen (Eintrag unten). User-Idee stattdessen: „FA-Tiles in
+einem contrastive/paste-Lauf nutzen — non-wall-Content dazu, Wand bleibt gleich."
+Faktencheck: **noch NIE contrastive/paste gemacht** (augment() war nur crop/flip/
+rot/color/grid; JEPA-SSL gescheitert). FA-Objekt-Sprites Patreon-gated → aber
+Distraktoren gratis aus den FA-Maps selbst (organische Nicht-Wand-Regionen).
+
+**Online-Research (zitiert, im Chat verifiziert), Shortlist billig-zuerst:**
+1. **Copy-Paste-Aug (Ghiasi CVPR'21, arxiv 2012.07177)** = die User-Idee. Zufälliges
+   Einpasten von Non-Target-Clutter, Label unverändert → Netz lernt „Clutter≠Wand".
+   Reiner Supervised-Loss mit unveränderter Maske reicht (KEIN teurer Consistency-/
+   Mean-Teacher-Branch nötig — der ist explizit zurückgestellt). Pitfall: harte
+   Paste-Kanten → als „Wand-Kante" lernbar → FEATHERN.
+2. Style/Textur-Randomisierung (Geirhos ICLR'19 texture-vs-shape) gegen „gemalte
+   Boden-Textur→Wand"; DINOv2 schon eher shape-biased → kleinerer Gewinn.
+3. clDice→**Skeleton-Recall-Loss (ECCV'24, arxiv 2404.03010)** ~gratis, hebt Recall
+   feiner GEKRÜMMTER Wände (die 0.00-Sümpfe). + Boundary-Loss.
+   NICHT jetzt: volle CPS/Mean-Teacher-Consistency-Infra (teuer, erst nach 1–3).
+
+**Umgesetzt + LÄUFT:** `pipeline/build_distractors.py` → **2766 Non-Wall-Patches**
+aus FA-Maps (Crops wo Wandmaske leer, `corpus/fa_distractors/`, gitignored).
+`train_seg.augment()` pastet 1–4 gefederte Ellipsen-Distraktoren pro Tile auf
+BODEN (Zielregion <2% Wand → Wände nie verdeckt, Maske bleibt gültig); per Env-Var
+`DISTRACTOR_BANK` opt-in (kein Effekt auf andere Trainings). Visuell geprüft (H2):
+gefederte Kanten, Boden-Platzierung, Masken intakt. Retrain DINO-FA mit
+Distraktoren AN → `pipeline/models/wall_dino_fa_cp.pt` (val=39 FA-holdout, 6ep,
+Log `corpus/results/train_dino_fa_cp.log`, setsid/überlebt-/clear).
+**BASELINE zu schlagen: FA 0.567 (single)/0.568 (MS), dd2vtt 0.894 (nicht regredieren).**
+Bei Resume: Log/Prozess prüfen → beide Domänen messen → notes+commit → wenn hilft:
+Style-Rand / Skeleton-Recall als nächstes; wenn nicht: berichten. Commits dieser
+Runde: 22b914d, e020f17, bf3afb5, (Ceiling), 586832b (Copy-Paste-Code).
+
 ## 2026-07-20 (Ausführung) — Plan-#5 VORPRÜFUNG: MoE-Gate ist LOW-VALUE (Oracle-Decke gemessen)
 
 Vor dem teuren Gate-Bau die MoE-Decke gemessen (per-Map-Oracle HEAT vs DINO-FA auf
