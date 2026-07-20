@@ -80,6 +80,10 @@ def main():
     ap.add_argument("--epochs", type=int, default=5); ap.add_argument("--bs", type=int, default=8)
     ap.add_argument("--node_reg", type=float, default=0.02)
     ap.add_argument("--donjon_cap", type=int, default=8000)
+    ap.add_argument("--tversky_beta", type=float, default=0.0,
+                    help="if >0, use Tversky loss for the wall channel with this "
+                         "false-negative weight (recall-favoring; e.g. 0.7). "
+                         "0 keeps the default DiceLoss.")
     ap.add_argument("--backbone_init", default="",
                     help="path to a JEPA-adapted ViT-g state_dict to load into the backbone")
     ap.add_argument("--out", default="pipeline/models/wall_dino_vitg.pt")
@@ -115,13 +119,19 @@ def main():
     vdl = torch.utils.data.DataLoader(DS(va, 0, train=False), batch_size=a.bs, num_workers=2)
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=2e-4)
     bce = nn.BCEWithLogitsLoss(); dloss = smp.losses.DiceLoss(mode="binary")
+    # wall-region loss: default Dice, or recall-favoring Tversky (FN weighted > FP)
+    if a.tversky_beta > 0:
+        wall_region = smp.losses.TverskyLoss(mode="binary", alpha=1.0 - a.tversky_beta, beta=a.tversky_beta)
+        print(f"wall region loss: Tversky(alpha={1.0 - a.tversky_beta:.2f}, beta={a.tversky_beta:.2f}) [recall-favoring]", flush=True)
+    else:
+        wall_region = dloss
     best = 0
     for ep in range(1, a.epochs + 1):
         model.train()
         for x, y in dl:
             x, y = x.to(DEV), y.to(DEV); opt.zero_grad()
             out = model(x); wl = torch.sigmoid(out[:, :1]); jl = torch.sigmoid(out[:, 1:])
-            loss = (bce(out[:, :1], y[:, :1]) + dloss(out[:, :1], y[:, :1]) + 0.4 * soft_cldice(wl, y[:, :1])
+            loss = (bce(out[:, :1], y[:, :1]) + wall_region(out[:, :1], y[:, :1]) + 0.4 * soft_cldice(wl, y[:, :1])
                     + bce(out[:, 1:], y[:, 1:]) + a.node_reg * jl.mean())
             loss.backward(); opt.step()
         model.eval(); d = 0; nb = 0

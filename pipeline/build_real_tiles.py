@@ -91,10 +91,20 @@ def build_fa(outimg, outmask):
     fa_test = set()
     if os.path.exists("corpus/fa_test.txt"):
         fa_test = {ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()}
+    # out-of-scope FA maps (organic terrain / faint / perimeter-only / abstract):
+    # excluded from training so the net learns only from maps with real detectable
+    # walls (built architecture + caves). See notes.md 2026-07-20 (Nacht).
+    fa_out = set()
+    if os.path.exists("corpus/fa_outscope.txt"):
+        fa_out = {ln.strip() for ln in open("corpus/fa_outscope.txt") if ln.strip()}
     total = 0
+    skipped_out = 0
     for p in sorted(glob.glob("corpus/fa/*.dd2vtt")):
         name = os.path.splitext(os.path.basename(p))[0]
         if name in fa_test:
+            continue
+        if name in fa_out:
+            skipped_out += 1
             continue
         try:
             r = load_uvtt(p)
@@ -117,7 +127,7 @@ def build_fa(outimg, outmask):
         footprint = (footprint | (cl > 0)).astype(np.uint8) * 255
         footprint = cv2.morphologyEx(footprint, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         total += tile_and_save(img, footprint, outimg, outmask, "fa_" + name[:20], hi=0.6)
-    print("FA tiles:", total)
+    print(f"FA tiles: {total}  (skipped {skipped_out} out-of-scope maps)")
     return total
 
 
