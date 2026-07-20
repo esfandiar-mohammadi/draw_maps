@@ -300,3 +300,7 @@ verified on maps A–C, committed as <hash>"), then root cause, then verificatio
 scope, then anything you noticed but did not do (as proposals, not questions).
 Report failures just as plainly: if a step failed or was skipped, say so —
 never present unverified work as done.
+
+# Delegate isolated tasks to subagents with a lean context to save tokens
+
+If you can split up your task into a series of isolated subtasks with some potential stitching together of the master agent where the stitching task is significantly easier than the overall task and where each subtask can be described with a fraction of the master agents' context, please spawn subagents for these isolated subtasks, give them the part of your context that they need for that task (try to keep their context as lean as possible for that subtask) and ask them to provide a report that includes all challenges that were encountered on the way and a description of the result. The master agent should then store the full report and only remember a summary that contains a pointer to all the challenges and a pointer to key points of the result such that the master agent knows where to look if more detailed information is needed.

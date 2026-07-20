@@ -4,6 +4,7 @@ nodes (points), edges (straight wall segments) with per-EDGE thickness, and node
 reduction (merge collinear edges, snap close nodes) so the graph uses few nodes.
 """
 import os, sys, json, argparse
+from collections import defaultdict
 import numpy as np, cv2, torch
 import segmentation_models_pytorch as smp
 from skimage.morphology import skeletonize
@@ -81,11 +82,32 @@ def build_graph(wall, junc, wall_thr=0.4, eps=4.0, snap_r=7, min_len=8):
     nodes = list(pred_nodes)          # start from learned junctions
     edges = []                        # (i, j, thickness)
 
+    # spatial hash so node lookup is O(1) amortised instead of O(n) per query
+    # (build_graph was O(V^2) on dense organic masks -> multi-hour hang @2k px).
+    cell = max(1.0, float(snap_r))
+    grid = defaultdict(list)          # (cx, cy) -> [node indices]
+
+    def _add_to_grid(i):
+        nx, ny = nodes[i]
+        grid[(int(nx // cell), int(ny // cell))].append(i)
+
+    for i in range(len(nodes)):
+        _add_to_grid(i)
+
     def node_id(pt):
-        j = snap(pt, nodes, snap_r)
-        if j is None:
-            nodes.append((float(pt[0]), float(pt[1]))); return len(nodes) - 1
-        return j
+        cx, cy = int(pt[0] // cell), int(pt[1] // cell)
+        r2 = snap_r * snap_r
+        best = None                    # lowest-index node within snap_r (matches
+        for gx in (cx - 1, cx, cx + 1):   # the old linear scan's first-match rule)
+            for gy in (cy - 1, cy, cy + 1):
+                for i in grid.get((gx, gy), ()):
+                    nx, ny = nodes[i]
+                    if (pt[0] - nx) ** 2 + (pt[1] - ny) ** 2 <= r2 and (best is None or i < best):
+                        best = i
+        if best is None:
+            nodes.append((float(pt[0]), float(pt[1]))); _add_to_grid(len(nodes) - 1)
+            return len(nodes) - 1
+        return best
 
     for p in polys:
         sp = simplify(p, eps)         # DP -> few corners
@@ -105,39 +127,48 @@ def build_graph(wall, junc, wall_thr=0.4, eps=4.0, snap_r=7, min_len=8):
 
 def merge_collinear(nodes, edges, ang_tol=12):
     """Remove degree-2 nodes whose two edges are ~collinear -> fewer nodes,
-    longer edges."""
-    from collections import defaultdict
-    adj = defaultdict(list)
-    for k, (a, b, t) in enumerate(edges):
-        adj[a].append((b, t)); adj[b].append((a, t))
-    removed = set(); out = list(edges)
+    longer edges. In-place adjacency mutation with a worklist: each merge only
+    re-examines the two touched neighbours instead of rebuilding the whole degree
+    map and restarting (the old break-and-restart was O(E^2) -> hung at 2k px)."""
+    import math
 
     def ang(p, q):
-        import math
         return math.degrees(math.atan2(q[1] - p[1], q[0] - p[0]))
 
-    changed = True
-    while changed:
-        changed = False
-        deg = defaultdict(list)
-        for k, (a, b, t) in enumerate(out):
-            if k in removed:
-                continue
-            deg[a].append(k); deg[b].append(k)
-        for nd, eks in deg.items():
-            if len(eks) != 2:
-                continue
-            k1, k2 = eks
-            a1, b1, t1 = out[k1]; a2, b2, t2 = out[k2]
-            o1 = b1 if a1 == nd else a1; o2 = b2 if a2 == nd else a2
-            v1 = ang(nodes[nd], nodes[o1]); v2 = ang(nodes[o2], nodes[nd])
-            d = abs((v1 - v2 + 180) % 360 - 180)
-            if d <= ang_tol:      # collinear -> merge into one edge o1--o2
-                removed.add(k1); removed.add(k2)
-                out.append((o1, o2, round((t1 + t2) / 2, 1)))
-                changed = True
-                break
-    edges2 = [e for k, e in enumerate(out) if k not in removed]
+    edict = {k: [a, b, t] for k, (a, b, t) in enumerate(edges)}
+    adj = defaultdict(set)            # node -> set of edge ids incident on it
+    for k, (a, b, t) in edict.items():
+        adj[a].add(k); adj[b].add(k)
+    next_id = len(edges)
+    work = [nd for nd in list(adj) if len(adj[nd]) == 2]
+
+    while work:
+        nd = work.pop()
+        eks = adj[nd]
+        if len(eks) != 2:
+            continue
+        k1, k2 = tuple(eks)
+        a1, b1, t1 = edict[k1]; a2, b2, t2 = edict[k2]
+        o1 = b1 if a1 == nd else a1
+        o2 = b2 if a2 == nd else a2
+        if o1 == nd or o2 == nd or o1 == o2:   # self-loop / would collapse -> skip
+            continue
+        v1 = ang(nodes[nd], nodes[o1]); v2 = ang(nodes[o2], nodes[nd])
+        if abs((v1 - v2 + 180) % 360 - 180) > ang_tol:
+            continue
+        # collinear -> replace the two edges by a single o1--o2 edge
+        del edict[k1]; del edict[k2]
+        adj[o1].discard(k1); adj[o1].discard(k2)
+        adj[o2].discard(k1); adj[o2].discard(k2)
+        adj[nd].discard(k1); adj[nd].discard(k2)
+        nk = next_id; next_id += 1
+        edict[nk] = [o1, o2, round((t1 + t2) / 2, 1)]
+        adj[o1].add(nk); adj[o2].add(nk)
+        if len(adj[o1]) == 2:
+            work.append(o1)
+        if len(adj[o2]) == 2:
+            work.append(o2)
+    edges2 = [tuple(e) for e in edict.values()]
     used = set()
     for a, b, t in edges2:
         used.add(a); used.add(b)

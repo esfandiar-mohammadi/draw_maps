@@ -1,3 +1,67 @@
+## 2026-07-20 (Fortsetzung) — SAUBERE FA-BASELINE etabliert (nach Tile-Rebuild)
+
+Nach dem Re-Harvest (267 Maps, 0 schwarz) die versprochenen Schritte 1–2 gemacht.
+
+**Schritt 1 — Tiles neu gebaut.** `corpus/fa_tiles/` gelöscht + neu erzeugt
+(`build_real_tiles.py --only fa --out corpus/fa_tiles`) → **394 Tiles** aus
+sauberen Bildern (build_fa schließt fa_test korrekt aus, verifiziert). Alte Tiles
+(07-19, enthielten ~13 schwarze Trainingsmaps) sind weg.
+
+**Schritt 2 — EHRLICHE Baseline auf bereinigtem 51-Map-Held-out.**
+- **HEAT/BYOL 0.926-Modell (sah nie FA), zero-shot: F1 0.409** (n=51, image_size
+  256). Vorher auf verschmutztem Test 0.360 → Bereinigung +0.049. Ohne die 3
+  degenerierten Maps (≤4 GT-Wände = reiner Kartenrand: forest-town-bridges,
+  red-rock-gully, winter-lake): **F1 0.432** (n=49). Log:
+  `corpus/results/heat_fa_clean_holdout.log`.
+- Verteilung stark BIMODAL: 17 Maps <0.2 (organisch/außen), 9 Maps >0.7 (sauberes
+  Innen: desolate-cellblock 0.81, wooden-fort-old 0.78, eternal-vale-cemetery
+  0.75). Bestätigt Diagnose.
+- ZWEI HEAT-Fehlermodi belegt: (a) **helle Hintergründe** — `yuletide-lodge`
+  (imgmean 224, Schnee, 228 GT-Wände) → HEAT malt 0 Segmente (braucht dunkle
+  Wand-Strokes); (b) **organische/gekrümmte** Grenzen (forest-river 0.14–0.22,
+  gloomy-swamp 0.01).
+- **Seg-U-Net neu auf SAUBEREN Tiles** (`wall_graph_fa_clean.pt`, donjon+real+
+  fa_tiles, 21% real, real_mul 65, 6ep, best val Dice 0.516 — stieg noch, mehr
+  Epochen könnten helfen). FA held-out:
+  - **Masken-Level (obere Schranke, --fast): F1 0.559** (excl-deg 0.587), vorher
+    dreckig 0.511. Log `corpus/results/seg_fa_clean_holdout.log`.
+  - **ECHTER Graph-Output (piecewise-linear, KEIN --fast): F1 0.507** (excl-deg
+    0.536). build_graph kostet ~0.05 ggü. Masken-UB. Log
+    `corpus/results/seg_fa_graph_holdout.log`.
+
+**ERGEBNIS: Seg (0.507 echt / 0.536 excl-deg) SCHLÄGT HEAT (0.409 / 0.432) auf FA
+und liefert den vom User geforderten piecewise-linear-Output.** Seg gewinnt 36
+von 48 Maps, HEAT nur 4 — genau die organischen Außen-Maps (gibbet 0.08→0.76,
+great-cavern 0.29→0.78, lava-cavern 0.16→0.58). Overlays geprüft (H2):
+great-cavern (Höhlengrenze als kurze Geraden, eng an GT), desolate-cellblock
+(Zellenstruktur erfasst, leichte Übersegmentierung aus Bodentextur).
+
+**⚠️ PRIORITÄTEN-UMKEHR (durch saubere Daten): FUSION IST NICHT MEHR DER HEBEL.**
+Per-Map-Oracle max(HEAT,SEG) = 0.604, nur **+0.017** über Seg allein (Seg ist
+fast eine Obermenge von HEAT). Die frühere These „HEAT↔Seg-Fusion höchste Decke"
+ist empirisch widerlegt. Der Hebel ist der SEG-WEG SELBST: (a) mehr Epochen (Dice
+stieg noch), (b) Style-/Textur-Aug gegen gemalt↔flach-Bias, (c) Skeleton-Recall-
+Loss, (d) build_graph-Verluste (0.559→0.507) reduzieren (bessere Skelett→Graph).
+
+**BUILD_GRAPH-HANG GEFIXT (`graph_infer.py`).** Zwei quadratische Hotspots:
+(1) `snap()` war O(n) pro Vertex → O(V²); jetzt Raum-Hash-Grid (3×3-Zellen,
+O(1) amortisiert). (2) `merge_collinear` brach nach JEDEM Merge ab + baute deg
+neu → O(E²); jetzt In-Place-Adjazenz + Worklist (~linear). Messung warehouse@2048:
+**>110s Hang → 0.7s**; @1536 11s→0.4s. Output BIT-IDENTISCH vor/nach (nodes/edges/
+maskpx exakt gleich auf 3 Maps) — reiner Speedup. Damit ist der echte piecewise-
+linear-Output auf Voll-Auflösung lieferbar; `--fast` nicht mehr nötig.
+
+DEGENERIERTE-MAPS-BEFUND: nur 3 von 51 Held-out haben ≤8 GT-Wände (reiner Rand);
+diese aus der FA-Metrik nehmen ist gerechtfertigt (F1 dort = Rauschen).
+
+### NEUE NÄCHSTE SCHRITTE (Reihenfolge, ersetzt die Fusion-Priorität)
+1. **Seg-Modell hochtrainieren**: mehr Epochen (Dice stieg noch bei ep6) +
+   Style/Textur-Aug (gemalt→flach) — der klarste Hebel, da Seg dominiert.
+2. Skeleton→Graph-Verlust (0.559→0.507) angehen: bessere Skelettierung/
+   Simplify-eps, damit der echte Output näher an die Masken-Schranke kommt.
+3. yuletide-lodge-Klasse (heller Schnee-BG): Seg-Maske 0.28 → Graph 0.03 (build_
+   graph zerfällt auf fragmentierter Maske) — untersuchen.
+
 ## 2026-07-20 — FA-DOMÄNE: Diagnose, Seg-Weg, DATEN-BUG gefunden (schwarze Bilder)
 
 Ziel (User): FA-Domänen-F1 über 0.5 heben; 20% der FA-Maps als echtes Held-out.
