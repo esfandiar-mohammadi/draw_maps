@@ -1,4 +1,46 @@
-## 2026-07-20 (Abend) — Copy-Paste-Augmentation (User-Idee) LÄUFT; Research-Shortlist
+## 2026-07-20 (Nacht) — FA IN-SCOPE-Neudefinition: 0.697 auf echten Wänden; Plan DINO→HEAT auf 0.9
+
+**Durchbruch beim Framing (User-getrieben):** Der FA-Wert 0.55 war halb echte Maps,
+halb unlösbares Terrain (Sümpfe/Flüsse/Wüsten, wo „Wand" = fuzzy Sichtlinien-Entscheidung
+oder nur Perimeter). User-Entscheid: organische/terrain-Maps sind NICHT im Scope.
+Höhlen BLEIBEN drin (klare Fels-Kanten). Belegt per GT-Overlay-Inspektion aller 51
+Held-out-Maps + edge-support/rectilinearity-Proxies (beide trennen NICHT sauber →
+Klassifikation ist visuell/semantisch, nicht geometrisch).
+
+**In-Scope-Split (Held-out, 51 → 32 IN / 2 BORDER / 17 OUT):**
+- Listen: `corpus/fa_test_inscope.txt` (32), `_borderline.txt` (2, ship/canyon),
+  `_outscope.txt` (17), `_buildings.txt` (23), `_caves.txt` (9).
+- **Copy-Paste-Modell `wall_dino_fa_cp.pt`:** best mask Dice 0.625 (ep2, Kurve
+  plateau→verworfen). Graph-F1: ALL 0.541 / IN 0.693. → CP ist KEIN Gewinn.
+- **Champion `wall_dino_fa.pt` (single-scale):** ALL 0.552 / **IN-SCOPE 0.697**.
+  DAS ist der aktuelle Balken. Copy-Paste bleibt verworfen.
+- **HEAT zero-shot (0.926-dd2vtt-Champion, sah NIE FA):** ALL 0.409 /
+  **IN 0.571 / BUILDINGS 0.614 / CAVES 0.459 / OUT 0.112.** Einzelne Buildings
+  zero-shot schon 0.74–0.81 (cellblock 0.81, wooden-fort 0.78). → HEAT ist auf
+  Buildings stark (dd2vtt-Heimspiel), auf Höhlen schwächer (Kurven, endlicher
+  Vertex-Budget) — genau die erwartete Komplementarität.
+
+**USER-PLAN (freigegeben): erst DINO-Pipeline auf >0.9 (in-scope), dann HEAT.**
+Wenn HEAT für Höhlen zu wenig ausdrucksstark → HEAT mit MEHR Output-Vertices neu
+trainieren. Out-of-scope-Maps MÜSSEN aus den Trainingsdaten raus.
+Schritte: (1) 216 Train-Maps in/out klassifizieren (LÄUFT, 4 Subagents auf
+Montage-Grids `scratchpad/train_mont/train_00..13.png`) → `corpus/fa_outscope.txt`;
+(2) `build_real_tiles.py build_fa` um outscope-Skip erweitern, fa_tiles neu bauen;
+(3) DINO-FA auf in-scope-only neu trainieren (+ recall-gewichteter Loss/Tversky,
+P=0.64≫R=0.50 ist die Lücke; + Multi-Scale-Inferenz +0.015); (4) GT/Kontrast-Fixes
+für gedeckelte in-scope-Maps (yuletide white-on-white, old-mill unter-gelabelt);
+(5) dann HEAT auf in-scope-only fine-tunen (warm-start 0.926), Höhlen→ggf mehr Vertices.
+
+**HW-MERKNOTE (User will Gemma ins Unified-RAM laden):** Box = GB10, ~128GB unified.
+CUDA `mem_get_info` zeigt frei nur ~13GB (≈78GB Linux-Page-Cache zählt als belegt →
+reclaimable, echte ~90GB verfügbar). Resident-Services (open-webui, ragflow,
+gpustack/llama-box, harness) ≈29GB. **DINO ViT-g Training-Peak (bs=8, gemessen)
+= ~23GB** (Weights 4.6GB). Sporadische OOM beim Model-Load = großer contiguous-Alloc
+scheitert vor Cache-Eviction → mit `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+starten + retry. Für Gemma concurrent: ≤~50GB (Gemma-27B 4-bit ~16GB / 12B fp16 ~24GB
+sicher; 27B fp16 ~54GB zu eng). Training-bs bei Bedarf auf 4 (~14GB) senken.
+
+
 
 **Pivot:** MoE-Gate verworfen (Eintrag unten). User-Idee stattdessen: „FA-Tiles in
 einem contrastive/paste-Lauf nutzen — non-wall-Content dazu, Wand bleibt gleich."
