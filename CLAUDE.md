@@ -19,6 +19,14 @@
 > ckpts_heat_fa_inscope/`. Symlink `vendor/heat/data/s3d_floorplan → heat_data_fa_inscope`.
 > (2) **32-Map-ep48-Baseline-Eval** lief noch (`corpus/results/heat_inscope_probe.log`,
 > `grep "MEAN HEAT"`); nur Sanity/Methode-Check auf altem ep48-Ckpt.
+> (3) **OVERNIGHT-MONITOR LÄUFT DETACHED** (`pipeline/heat_snapshot_monitor.py`, setsid,
+> überlebt /clear): evaluiert JEDEN neuen `checkpoint_ep*.pth` per CPU auf in-scope-32
+> und schreibt ep→F1-Tabelle (mean + buildings/caves) nach
+> **`corpus/results/heat_snapshot_summary.txt`** — DA nach /clear ZUERST reingucken
+> (nicht neu aufsetzen!). Monitor-Log `heat_snapshot_monitor.log`, Einzel-Evals
+> `heat_snapshot_evals/ep*.log`. Prüfen ob er noch lebt: `pgrep -f heat_snapshot_monitor`;
+> wenn tot + Training läuft noch → mit dem Launch-Cmd im Docstring neu starten.
+> Besten Snapshot aus der Tabelle picken, mit DINO 0.728 vergleichen.
 >
 > **CPU-EVAL (Balken-Messung, stört Training NICHT — nutze das für Snapshots):**
 > `HEAT_EVAL_DEV=cpu OMP_NUM_THREADS=8 .venv/bin/python pipeline/heat_eval_uvtt.py
