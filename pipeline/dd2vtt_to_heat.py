@@ -87,18 +87,25 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--fa", action="store_true",
                     help="also include Forgotten-Adventures maps (corpus/fa/*.dd2vtt)")
+    ap.add_argument("--fa_holdout", default="corpus/fa_test.txt",
+                    help="FA maps held out as test (never trained)")
+    ap.add_argument("--fa_exclude", default="",
+                    help="FA maps excluded entirely (e.g. out-of-scope pollution)")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
     files = sorted(glob.glob("vendor/vtt-maps/maps/**/*.dd2vtt", recursive=True))
     for ext in ("dd2vtt", "uvtt", "json"):
         files += sorted(glob.glob(f"corpus/real_uvtt/**/*.{ext}", recursive=True))
-    fa_test = set()
+    fa_test, fa_exclude = set(), set()
     if args.fa:
         files += sorted(glob.glob("corpus/fa/**/*.dd2vtt", recursive=True))
-        if os.path.exists("corpus/fa_test.txt"):
-            fa_test = {ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()}
-            print(f"holding out {len(fa_test)} FA maps as test (corpus/fa_test.txt)")
+        if os.path.exists(args.fa_holdout):
+            fa_test = {ln.strip() for ln in open(args.fa_holdout) if ln.strip()}
+            print(f"holding out {len(fa_test)} FA maps as test ({args.fa_holdout})")
+        if args.fa_exclude and os.path.exists(args.fa_exclude):
+            fa_exclude = {ln.strip() for ln in open(args.fa_exclude) if ln.strip()}
+            print(f"excluding {len(fa_exclude)} out-of-scope FA maps ({args.fa_exclude})")
     for d in ("density", "normals", "annot"):
         os.makedirs(os.path.join(args.out, d), exist_ok=True)
     black = np.zeros((args.crop, args.crop, 3), np.uint8)
@@ -106,7 +113,7 @@ def main():
     names_by_map, n_maps, n_skip = {}, 0, 0
     for fi, path in enumerate(files):
         stem = os.path.splitext(os.path.basename(path))[0]
-        if stem in HARD or stem in fa_test:
+        if stem in HARD or stem in fa_test or stem in fa_exclude:
             continue
         try:
             r = load_uvtt(path)

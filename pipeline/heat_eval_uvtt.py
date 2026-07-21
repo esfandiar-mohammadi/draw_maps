@@ -23,6 +23,7 @@ from models.corner_models import HeatCorner  # noqa: E402
 from models.edge_models import HeatEdge  # noqa: E402
 from models.corner_to_edge import get_infer_edge_pairs  # noqa: E402
 
+DEV = os.environ.get("HEAT_EVAL_DEV", "cuda")  # set HEAT_EVAL_DEV=cpu to eval off-GPU
 MEAN = np.array([0.485, 0.456, 0.406]); STD = np.array([0.229, 0.224, 0.225])
 HARD = ["void-town", "goblin-travel-train", "desert-tavern", "road-side-in",
         "festival-of-fools", "little-fish-academy"]
@@ -45,16 +46,28 @@ def load_models(ckpt_path):
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     backbone = ResNetBackbone()
     strides, num_channels = backbone.strides, backbone.num_channels
-    backbone = nn.DataParallel(backbone).cuda().eval()
-    corner_model = nn.DataParallel(HeatCorner(
-        input_dim=128, hidden_dim=256, num_feature_levels=4,
-        backbone_strides=strides, backbone_num_channels=num_channels)).cuda().eval()
-    edge_model = nn.DataParallel(HeatEdge(
-        input_dim=128, hidden_dim=256, num_feature_levels=4,
-        backbone_strides=strides, backbone_num_channels=num_channels)).cuda().eval()
-    backbone.load_state_dict(ckpt["backbone"])
-    corner_model.load_state_dict(ckpt["corner_model"])
-    edge_model.load_state_dict(ckpt["edge_model"])
+    corner = HeatCorner(input_dim=128, hidden_dim=256, num_feature_levels=4,
+                        backbone_strides=strides, backbone_num_channels=num_channels)
+    edge = HeatEdge(input_dim=128, hidden_dim=256, num_feature_levels=4,
+                    backbone_strides=strides, backbone_num_channels=num_channels)
+    if DEV == "cpu":
+        # checkpoints were saved from nn.DataParallel (keys prefixed "module.");
+        # DataParallel forces cuda:0, so on CPU use bare modules + strip prefix.
+        strip = lambda sd: {k[len("module."):] if k.startswith("module.") else k: v
+                            for k, v in sd.items()}
+        backbone.load_state_dict(strip(ckpt["backbone"]))
+        corner.load_state_dict(strip(ckpt["corner_model"]))
+        edge.load_state_dict(strip(ckpt["edge_model"]))
+        # ResNetBackbone.train() returns None -> don't reassign from .eval(); mutate in place
+        backbone.to(DEV).eval(); corner.to(DEV).eval(); edge.to(DEV).eval()
+        corner_model, edge_model = corner, edge
+    else:
+        backbone = nn.DataParallel(backbone).to(DEV).eval()
+        corner_model = nn.DataParallel(corner).to(DEV).eval()
+        edge_model = nn.DataParallel(edge).to(DEV).eval()
+        backbone.load_state_dict(ckpt["backbone"])
+        corner_model.load_state_dict(ckpt["corner_model"])
+        edge_model.load_state_dict(ckpt["edge_model"])
     return (backbone, corner_model, edge_model), ckpt["args"]
 
 
@@ -66,7 +79,7 @@ def run_tile(image_bgr, models, pixels, pixel_features, ckpt_args,
     backbone, corner_model, edge_model = models
     img = skimage.img_as_float(image_bgr).transpose((2, 0, 1))
     img = (img - MEAN[:, None, None]) / STD[:, None, None]
-    image = torch.tensor(img.astype(np.float32)).unsqueeze(0).cuda()
+    image = torch.tensor(img.astype(np.float32)).unsqueeze(0).to(DEV)
 
     image_feats, feat_mask, all_image_feats = backbone(image)
     pf = pixel_features.unsqueeze(0).repeat(image.shape[0], 1, 1, 1)
@@ -197,14 +210,16 @@ def main():
     ap.add_argument("--fa_test", action="store_true",
                     help="evaluate on the held-out FA maps in corpus/fa_test.txt "
                          "(instead of the 6 hard dd2vtt maps)")
+    ap.add_argument("--fa_list", default="corpus/fa_test.txt",
+                    help="FA slug list to evaluate when --fa_test (e.g. in-scope)")
     ap.add_argument("--per_map", action="store_true", help="print each map's P/R/F1")
     args = ap.parse_args()
     models, ckpt_args = load_models(args.ckpt)
     pixels, pixel_features = get_pixel_features(image_size=args.image_size)
-    pixel_features = pixel_features.cuda()
+    pixel_features = pixel_features.to(DEV)
 
     if args.fa_test:
-        slugs = [ln.strip() for ln in open("corpus/fa_test.txt") if ln.strip()]
+        slugs = [ln.strip() for ln in open(args.fa_list) if ln.strip()]
         maps = [(s, os.path.join("corpus/fa", s + ".dd2vtt")) for s in slugs]
         tag = f"FA held-out ({len(maps)} maps)"
     else:

@@ -1,3 +1,38 @@
+## 2026-07-21 (Abend) — Pivot zu HEAT-in-scope (User: DINO-Long abgebrochen)
+
+**User-Entscheid:** DINOv2-Long-Run (`wall_dino_fa_inscope_long.pt`) bei Epoche 12/18
+ABGEBROCHEN (bester val Dice 0.666 @ep8, Kurve plateauierte 0.64–0.666 seit ep5 —
+das ist aber MASK-Dice, entkoppelt von Graph-F1). Stattdessen jetzt HEAT-Arc.
+
+**HEAT in-scope sauber aufgesetzt (Fix für altes polluted FA-HEAT ~0.50):**
+- `dd2vtt_to_heat.py` gepatcht: neue Flags `--fa_holdout` (default fa_test.txt) und
+  `--fa_exclude`. Build `corpus/heat_data_fa_inscope`:
+  `--fa --fa_holdout corpus/fa_test_inscope.txt --fa_exclude corpus/fa_outscope.txt`
+  → **225 Maps, 5585 train / 547 valid Crops** (real dd2vtt + FA in-scope buildings+
+  caves; 32 in-scope-Test raus, 69 out-scope raus).
+- Symlink `vendor/heat/data/s3d_floorplan → corpus/heat_data_fa_inscope` (ZURÜCK auf
+  heat_data_fa für dd2vtt-only!).
+- Training LÄUFT (setsid, OOM-retry, bs=8, warmstart `ckpts_heat_byol_full/
+  checkpoint_best.pth` ep45→46): `train.py --exp_dataset s3d_floorplan --image_size 256
+  --resume ... --output_dir checkpoints/ckpts_heat_fa_inscope --epochs 250 --lr_drop 200
+  --run_validation --save_every 10`. Log `corpus/results/train_heat_fa_inscope.log`.
+- **GOTCHA GPU-Sharing:** Gemma frisst GPU → ~10 min/Epoche (95% util contention);
+  bs=8 = 9.3GB (passt in ~12.5GB frei). 250-Epochen-Cap = ~34h → NICHT auslaufen
+  lassen; User-Entscheid „laufen lassen, früh stoppen": Snapshots per CPU-Eval auf
+  in-scope-32 messen, bei Graph-F1-Plateau stoppen. save_every 10 → ep50,60,…
+- **CPU-Eval gebaut** (`heat_eval_uvtt.py`): env `HEAT_EVAL_DEV=cpu` + Flag `--fa_list`.
+  3 Bugs gefixt für CPU: (1) nn.DataParallel erzwingt cuda:0 → auf CPU bare Module +
+  "module."-Prefix strippen; (2) `ResNetBackbone.train()` gibt None zurück → NICHT von
+  `.eval()` reassignen, in-place mutieren; (3) MSDeformAttn hat keine CPU-Impl →
+  `ms_deform_attn.py` Fallback auf `ms_deform_attn_core_pytorch` wenn `not value.is_cuda`
+  (CUDA/Training-Pfad unberührt). Aufruf: `HEAT_EVAL_DEV=cpu … heat_eval_uvtt.py --ckpt
+  <snap> --image_size 256 --fa_test --fa_list corpus/fa_test_inscope.txt --per_map`.
+- **Erste Zahl @ep48 (warmstart+3 Epochen, CPU, PARTIAL):** abandoned-cathedral F1 0.73,
+  barracks-and-storage F1 0.81 (beides buildings). Vielversprechend — schon im Bereich
+  DINO-in-scope. Voll-Eval-32 + Balken-Vergleich zu DINO 0.728 folgt.
+
+**Balken bleibt bis Gegenbeweis:** DINO-FA-in-scope 0.728 (MS) / HEAT dd2vtt 0.926.
+
 ## 2026-07-20 (Nacht) — FA IN-SCOPE-Neudefinition: 0.697 auf echten Wänden; Plan DINO→HEAT auf 0.9
 
 **Durchbruch beim Framing (User-getrieben):** Der FA-Wert 0.55 war halb echte Maps,
