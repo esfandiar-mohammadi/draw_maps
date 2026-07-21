@@ -1,3 +1,39 @@
+## 2026-07-21 (spät II) — DINO-Verbesserungsplan geschrieben (NICHT ausgeführt) + ep50-Eval-Crash gefixt
+
+**User-Auftrag: Online-Research + Plan für DINO-Pipeline-Verbesserung, nur aufschreiben.**
+→ **`DINO_IMPROVEMENT_PLAN.md`** (Repo-Root). Basis: 4 Web-Research-Sweeps (Heads/
+Losses/Vectorization/Data, alle Claims mit URLs) + lokale Evidenz. Kernbefunde:
+- Lokale Analyse: DINO-MS in-scope **P=0.819 R=0.670** → RECALL ist die Lücke,
+  gleichmäßig über alle Maps (nur decrepit-attic <0.5). Oracle(DINO,HEAT-ep48)=0.759,
+  Typ-Routing (caves→DINO) SCHLECHTER (0.692) — Gewinner folgt nicht dem Typ-Split.
+- Tversky-Flag-Konvention VERIFIZIERT korrekt (SMP: beta auf FN-Term → recall-favoring).
+- Strategie: „Recall in der Maske, Precision im Graph" — recall-shaped Losses
+  (Tversky 0.7 + Skeleton Recall Loss statt clDice) + Auflösung 252→518, dann
+  MRF/gelernte Edge-Verification als Precision-Netz auf Graph-Ebene.
+- Phase 3 (strukturell): DINOv3-ViT-L (gated, User-Lizenz nötig; kleiner ALS ViT-g
+  und besser dense), UniMatch-V2-SSL auf 176k-Pool, ControlNet-Synthesedaten
+  (FreeMask-Rezept), CAGE als HEAT-Nachfolger (edge-nativ, +9-11 über HEAT auf S3D).
+- Ehrlich: kein Einzel-Hebel macht 0.73→0.9; Plan stapelt Phasen mit Gates.
+
+**Nebenbei gefixt (laufende HEAT-Überwachung, nicht der DINO-Plan):** ep50-Snapshot-
+Eval crashte mit `KeyError: 368` in vendor corner_to_edge (`all_combibations` deckt
+nur 2–350 Corners; neue Ckpts feuern >350 auf cluttered Tiles). Fix in
+`pipeline/heat_eval_uvtt.py`: Top-350 Corners nach Confidence cappen (No-op ≤350).
+Stale ep50.log gelöscht → Monitor-Retry läuft mit Fix.
+
+## 2026-07-21 (spät) — ep48-Baseline-Probe fertig: HEAT in-scope full-32 = 0.688
+
+Der 32-Map-ep48-Baseline-Eval (Sanity/Methoden-Check auf altem ep48-Ckpt,
+`heat_inscope_probe.log`) ist durchgelaufen: **MEAN HEAT P=0.758 R=0.654 F1=0.688**
+(n=32). Also HEAT @ep48 (~3 FT-Epochen) noch UNTER DINO-in-scope 0.728. Bild ist
+bimodal wie in der Diagnose: stark depleted-mine 0.94 / desolate-cellblock 0.92 /
+sewer-town 0.92 / crypt 0.87; schwach decrepit-attic 0.32 / valley-encampment 0.29 /
+old-owl-well 0.37 / confectionery 0.44. Auf Full-Corpus-Ebene ist RECALL (0.654) der
+größere Drag, nicht Precision (0.758) — anders als die frühe erste-Maps-Diagnose
+(die auf den schwachen Maps Precision-Probleme sah). ep50 CPU-Eval läuft gerade
+(Monitor); erste 2 Maps zeigen P≈0.90 → beobachten ob Precision mit Epochen weiter
+steigt. Nächster echter Vergleichspunkt: ep50/ep60-mean vs DINO 0.728.
+
 ## 2026-07-21 (Abend) — Pivot zu HEAT-in-scope (User: DINO-Long abgebrochen)
 
 **User-Entscheid:** DINOv2-Long-Run (`wall_dino_fa_inscope_long.pt`) bei Epoche 12/18

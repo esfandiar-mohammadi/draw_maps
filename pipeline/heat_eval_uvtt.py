@@ -92,6 +92,12 @@ def run_tile(image_bgr, models, pixels, pixel_features, ckpt_args,
     pred_corners, pred_confs = corner_nms(pred_corners, pred_confs, c_outputs.shape[1])
     if len(pred_corners) < 2:
         return np.zeros((0, 2)), np.zeros((0, 2), int)
+    # vendor corner_to_edge.all_combibations only covers 2..350 corners; later
+    # fine-tune checkpoints can fire >350 on cluttered tiles -> KeyError. Keep
+    # the 350 most confident corners (no-op for <=350).
+    if len(pred_corners) > 350:
+        keep = np.argsort(-pred_confs)[:350]
+        pred_corners, pred_confs = pred_corners[keep], pred_confs[keep]
 
     pred_corners, pred_confs, edge_coords, edge_mask, edge_ids = \
         get_infer_edge_pairs(pred_corners, pred_confs)
@@ -188,8 +194,11 @@ def evalmap(path, models, pixels, pixel_features, ckpt_args, image_size,
     gt = raster([(x0 * sc, y0 * sc, x1 * sc, y1 * sc) for x0, y0, x1, y1 in r["walls"]], work.shape[:2])
     pred = raster(pred_segs, work.shape[:2])
     if overlay_dir:
-        ov = work.copy()
-        for x0, y0, x1, y1 in pred_segs:
+        ov = (work * 0.5).astype(np.uint8)  # dim base map
+        gt_segs = [(x0 * sc, y0 * sc, x1 * sc, y1 * sc) for x0, y0, x1, y1 in r["walls"]]
+        for x0, y0, x1, y1 in gt_segs:  # ground truth = green
+            cv2.line(ov, (int(x0), int(y0)), (int(x1), int(y1)), (0, 200, 0), 2)
+        for x0, y0, x1, y1 in pred_segs:  # prediction = red
             cv2.line(ov, (int(x0), int(y0)), (int(x1), int(y1)), (0, 0, 255), 2)
         name = os.path.splitext(os.path.basename(path))[0]
         cv2.imwrite(os.path.join(overlay_dir, f"HEAT_eval_{name}.png"), ov)
