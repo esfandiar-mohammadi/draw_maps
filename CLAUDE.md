@@ -1,7 +1,61 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-21 (NEUSTER Block; nach `/clear` ZUERST lesen).**
-> Der `⏩⏩`-Block darunter (Stand 2026-07-20, Copy-Paste) ist ÜBERHOLT — nur Historie.
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-21 (ABEND; HEAT-Arc; nach `/clear` ZUERST lesen).**
+> Der `⏩⏩⏩`-Block darunter (2026-07-21 früher, DINO-Long) ist ÜBERHOLT — nur Historie.
+>
+> **AKTUELLE RICHTUNG: HEAT-in-scope fine-tunen (User hat DINO-Long ABGEBROCHEN).**
+> Ziel unverändert: FA-in-scope-Graph-F1 Richtung 0.9. DINOv2-Long (`wall_dino_fa_
+> inscope_long.pt`) bei ep12/18 gekillt (bester MASK-val-Dice 0.666@ep8, plateauiert;
+> Ckpt bleibt liegen). Jetzt HEAT (49M, Buildings-Spezialist).
+>
+> **▶️ BEI „continue" ZUERST — 2 Jobs prüfen (beide setsid, überleben /clear):**
+> (1) **HEAT-Training** LÄUFT: `pgrep -f "train.py.*s3d_floorplan"`; Fortschritt
+> `grep -oE "Epoch: \[[0-9]+\]" corpus/results/train_heat_fa_inscope.log | tail -1`
+> (Stand: ~ep51). Warmstart ep45→46 vom 0.926-dd2vtt-Champ; **~10 min/Epoche**
+> (Gemma-GPU-Sharing!), Cap 250 = ~34h → **NICHT auslaufen lassen**; User-Entscheid
+> „laufen lassen, früh stoppen": Snapshots (`save_every 10` → ckpts_heat_fa_inscope/
+> checkpoint_ep{50,60,…}.pth) per CPU-Eval messen, bei Graph-F1-**Plateau stoppen**
+> (kill python-PID; wrapper ist eh tot). Output `vendor/heat/checkpoints/
+> ckpts_heat_fa_inscope/`. Symlink `vendor/heat/data/s3d_floorplan → heat_data_fa_inscope`.
+> (2) **32-Map-ep48-Baseline-Eval** lief noch (`corpus/results/heat_inscope_probe.log`,
+> `grep "MEAN HEAT"`); nur Sanity/Methode-Check auf altem ep48-Ckpt.
+>
+> **CPU-EVAL (Balken-Messung, stört Training NICHT — nutze das für Snapshots):**
+> `HEAT_EVAL_DEV=cpu OMP_NUM_THREADS=8 .venv/bin/python pipeline/heat_eval_uvtt.py
+> --ckpt vendor/heat/checkpoints/ckpts_heat_fa_inscope/checkpoint_ep60.pth
+> --image_size 256 --fa_test --fa_list corpus/fa_test_inscope.txt --per_map`
+> (~70s/Map CPU → ~35min/32). Overlays: `--overlay_dir DIR` (GRÜN=GT, ROT=pred).
+> 3 CPU-Fixes drin (heat_eval_uvtt.py + vendor/heat ms_deform_attn.py, letzteres
+> git-ignored): DataParallel→bare+strip, ResNetBackbone.train()→None (in-place),
+> MSDeformAttn CPU-Fallback. **Snapshot vor Eval kopieren** (checkpoint.pth wird
+> überschrieben). PID-Waiter statt pgrep (Selbstmatch); auf ECHTE python-PID warten,
+> NICHT auf setsid-Launcher-Bash (der exitet sofort).
+>
+> **DIAGNOSE ep48 (früh, ~3 FT-Epochen): mean der ersten Maps ~0.66, GEMISCHT.**
+> Stark: depleted-mine 0.94, crypt 0.87, cave-gallery 0.81, barracks 0.81. Schwach:
+> decrepit-attic 0.32, briny-maze(cave) 0.36, confectionery 0.44. **Fehlermodus =
+> PRECISION, nicht Recall** (P 0.25–0.39 / R 0.38–0.60): HEAT findet echte Wände,
+> erfindet aber Falsch-Positive: (a) Außendächer/Strukturen außerhalb GT-Footprint,
+> (b) Möbel/Textur INNEN, (c) Bild-Rand-Kasten (→ `drop_border_edges`-Leck prüfen).
+> Höhlen: glatte Kurve wird fragmentiert + Innen-Clutter halluziniert (organisch-Fail).
+> Overlay-Beleg: `corpus/results/heat_weak_overlays/`.
+>
+> **VERBESSERUNGS-HEBEL (nach genug Training-Snapshots):**
+> 1. Weiter trainieren — Clutter-Unterdrückung sollte mit Epochen kommen (starke Maps
+>    zeigen dass es geht). Kurve ansehen, [[training-patience-local-optima]].
+> 2. **Mehr Output-Vertices** (`--max_corner_num` >150, User-Vorgabe) — v.a. für Höhlen-
+>    Kurven; ggf. HEAT für Höhlen neu trainieren.
+> 3. **Per-Map-Routing HEAT(buildings)+DINO(caves)** — DINO ist auf organischen Höhlen
+>    besser, HEAT auf Buildings. Höhlen→DINO, Buildings→HEAT.
+> 4. `drop_border_edges` gegen den Rand-Kasten härten.
+>
+> **BALKEN (bis Gegenbeweis): DINO-FA-in-scope 0.728 (MS) / HEAT dd2vtt 0.926.**
+> HEAT-in-scope voll-32-Zahl auf einem konvergierten Snapshot vs 0.728 vergleichen.
+> Detail-Chronik: notes.md OBERSTER Eintrag (2026-07-21 Abend). Commit 59bb04f.
+>
+> ---
+>
+> ⏩⏩⏩ **RESUME (Stand 2026-07-21 früh, ÜBERHOLT — DINO-Long; nur Historie).**
 >
 > **NEUE RICHTUNG (User): FA-Score auf ECHTE Wände fokussieren, Ziel >0.9 (in-scope).**
 > Der alte FA-Wert ~0.55 war halb echte Maps, halb unlösbares Terrain (Sümpfe/Flüsse/

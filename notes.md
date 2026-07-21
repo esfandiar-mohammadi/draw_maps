@@ -27,9 +27,23 @@ das ist aber MASK-Dice, entkoppelt von Graph-F1). Stattdessen jetzt HEAT-Arc.
   `ms_deform_attn.py` Fallback auf `ms_deform_attn_core_pytorch` wenn `not value.is_cuda`
   (CUDA/Training-Pfad unberührt). Aufruf: `HEAT_EVAL_DEV=cpu … heat_eval_uvtt.py --ckpt
   <snap> --image_size 256 --fa_test --fa_list corpus/fa_test_inscope.txt --per_map`.
-- **Erste Zahl @ep48 (warmstart+3 Epochen, CPU, PARTIAL):** abandoned-cathedral F1 0.73,
-  barracks-and-storage F1 0.81 (beides buildings). Vielversprechend — schon im Bereich
-  DINO-in-scope. Voll-Eval-32 + Balken-Vergleich zu DINO 0.728 folgt.
+- **Zahlen @ep48 (warmstart+~3 Epochen, CPU): mean der ersten ~9 Maps ~0.66, GEMISCHT.**
+  Stark: depleted-mine 0.94, crypt-of-the-talhund 0.87, cave-gallery-ab 0.81,
+  barracks-and-storage 0.81, abandoned-cathedral 0.73. Schwach: decrepit-estate-attic
+  0.32, briny-maze-dragon-s-den (cave) 0.36, confectionery 0.44.
+
+**DIAGNOSE der schwachen Maps (Overlays `corpus/results/heat_weak_overlays/`, GRÜN=GT
+ROT=pred):** Fehler ist **PRECISION, nicht Recall** (P 0.25–0.39 / R 0.38–0.60). HEAT
+findet die echten Wände weitgehend, erfindet aber Falsch-Positive: (a) Außendächer/
+-strukturen außerhalb des GT-Footprints, (b) Möbel/Bodentextur INNEN, (c) einen
+Bild-Rand-Kasten (→ `drop_border_edges` leckt, härten). Höhlen: glatte Perimeter-Kurve
+wird fragmentiert + Innen-Clutter halluziniert (bekannter HEAT-organisch-Fail). Bei ep48
+sind das nur ~3 FT-Epochen → Clutter-Unterdrückung sollte mit mehr Training kommen
+(starke Maps belegen, dass HEAT-in-scope das Niveau erreichen kann).
+
+**Verbesserungs-Hebel (Reihenfolge):** (1) weiter trainieren + Snapshots messen, bei
+Plateau stoppen; (2) `--max_corner_num` >150 (mehr Output-Vertices, v.a. Höhlen);
+(3) Per-Map-Routing HEAT(buildings)+DINO(caves); (4) `drop_border_edges` härten.
 
 **Balken bleibt bis Gegenbeweis:** DINO-FA-in-scope 0.728 (MS) / HEAT dd2vtt 0.926.
 
