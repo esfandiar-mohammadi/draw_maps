@@ -1,6 +1,58 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩ **RESUME HERE — Stand 2026-07-20 (nach `/clear` ZUERST lesen).**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-21 (NEUSTER Block; nach `/clear` ZUERST lesen).**
+> Der `⏩⏩`-Block darunter (Stand 2026-07-20, Copy-Paste) ist ÜBERHOLT — nur Historie.
+>
+> **NEUE RICHTUNG (User): FA-Score auf ECHTE Wände fokussieren, Ziel >0.9 (in-scope).**
+> Der alte FA-Wert ~0.55 war halb echte Maps, halb unlösbares Terrain (Sümpfe/Flüsse/
+> Wüsten/Perimeter-only). Diese sind NICHT im Scope. **Höhlen BLEIBEN drin** (klare
+> Fels-Kanten, funktionieren gut). Belegt per visueller GT-Overlay-Klassifikation aller
+> Maps (Geometrie/Edge-Proxies trennen NICHT sauber → Entscheidung ist visuell).
+>
+> **SCOPE-LISTEN (committet):** `corpus/fa_test_inscope.txt` (32 Held-out = 23 buildings
+> + 9 caves), `_buildings.txt`, `_caves.txt`, `_outscope.txt` (17), `_borderline.txt` (2).
+> `corpus/fa_outscope.txt` = 69 Maps, die aus dem TRAINING raus sind (build_fa skippt
+> sie; fa_tiles 394→275). Eval-in-scope-Mean IMMER selbst berechnen: per_map-Eval →
+> Zeilen gegen fa_test_inscope.txt mitteln (kein CLI-Flag dafür).
+>
+> **BALKEN / ERGEBNISSE (in-scope graph-F1, n=32):**
+> - Champion `wall_dino_fa.pt` (alte Daten): single **0.697**.
+> - Retrain in-scope-Daten `wall_dino_fa_inscope.pt`: single **0.707** (+0.010 Data-Cleanup),
+>   **multi-scale 0.728** (+0.021 MS). Mask-val-Dice war FLACH ~0.63.
+> - HEAT zero-shot (sah nie FA): in-scope 0.571 / **buildings 0.614** / caves 0.459.
+> - dd2vtt-Bestwert unverändert HEAT 0.926; all-domain FA-Bestwert DINO-FA 0.568(MS).
+>
+> **▶️ BEI „continue" ZUERST: Long-Run prüfen.** LÄUFT (setsid, überlebt /clear):
+> `wall_dino_fa_inscope_long.pt` (--samples 180000=3×, bs=4, 18 val-points, KEIN Tversky
+> → „länger trainieren" isoliert, wg. User-Hinweis Geduld/lokale Optima).
+> Status: `grep "wall val Dice\|best Dice=" corpus/results/train_dino_fa_inscope_long.log`;
+> Prozess `pgrep -f "train_dino.py.*inscope_long"`. WENN fertig: single+MS in-scope evaln
+> (`graph_eval_dino.py --ckpt … --fa_test --per_map` und `graph_eval_dino_ms.py --ckpt …
+> --per_map`), in-scope-32-Mean bilden, mit 0.728 vergleichen. Kurve ganz ansehen —
+> NICHT bei kurzem Plateau abbrechen ([[training-patience-local-optima]]).
+>
+> **NÄCHSTE HEBEL Richtung 0.9 (0.728→0.9 ist groß, mehr als nur Länge nötig):**
+> (1) recall-favoring Loss: `train_dino.py --tversky_beta 0.7` (Flag gebaut+verifiziert;
+> P>R ist die Lücke). (2) DANN HEAT-Arc (User-Reihenfolge: erst DINO, dann HEAT):
+> HEAT auf in-scope-ONLY fine-tunen (warm-start 0.926-ckpt `ckpts_heat_byol_full/
+> checkpoint_best.pth`) — nie sauber gemacht (alter FA-HEAT ~0.50 war auf polluted+organic
+> trainiert). HEAT ist Buildings-Spezialist; wenn Höhlen zu wenig ausdrucksstark →
+> **HEAT mit MEHR Output-Vertices neu trainieren** (User-Vorgabe). Dann Per-Map-Routing
+> HEAT(buildings)+DINO(caves).
+>
+> **GPU/RAM-GOTCHA (WICHTIG):** Parallele Session fährt **Gemma-4-31B q4_0 GGUF**
+> (llama-server, ctx 96k, -ngl 99) auf DERSELBEN GPU (GB10 unified, ~128GB). Dessen
+> KV-Cache frisst ~90GB → **CUDA-frei nur ~7–19GB** (obwohl OS-MemAvailable ~50GB;
+> Differenz = reclaimable page-cache, das CUDA nicht gutschreibt). Daher: Training
+> **bs=4**, IMMER `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, und
+> Model-Load OOMt sporadisch (contiguous-Alloc) → **Launch-Retry-Loop** nutzen. Auch
+> Evals OOMen wenn Gemma spikt → retry. Page-Cache-Drop braucht root (kein sudo hier);
+> nur als Pre-Load-Trick sinnvoll. Wenn User Gemma-ctx→32k senkt: bs=8 möglich (2× schneller).
+> `--epochs` = nur Val-Frequenz, `--samples` = echte Trainingslänge.
+>
+> ---
+>
+> ⏩⏩ **RESUME (Stand 2026-07-20, ÜBERHOLT — Copy-Paste; nur Historie).**
 > Dieser Block ist die Kurzfassung zum Weitermachen.
 >
 > **▶️ BEI „continue"/„mach weiter" (Stand 2026-07-20 Abend):**
