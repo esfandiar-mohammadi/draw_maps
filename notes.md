@@ -20,6 +20,20 @@ Klassifikation ist visuell/semantisch, nicht geometrisch).
   Buildings stark (dd2vtt-Heimspiel), auf Höhlen schwächer (Kurven, endlicher
   Vertex-Budget) — genau die erwartete Komplementarität.
 
+**RUN 1 ERGEBNIS (in-scope-only Trainingsdaten, sonst Champion-Rezept 60k/6ep):**
+`wall_dino_fa_inscope.pt`, mask val Dice FLACH 0.628→0.632→…→0.618 (best 0.632).
+Graph-F1 in-scope: **single 0.707** (Champion 0.697 → Data-Cleanup allein +0.010),
+**multi-scale 0.728** (+0.021 durch MS) → gesamt +0.031. buildings≈caves (~0.71/0.72-0.75).
+**LÄUFT (Nacht 2026-07-21): LONG-RUN** `wall_dino_fa_inscope_long.pt`
+(--samples 180000 = 3× Run1, bs=4 [Gemma-Speicher!], 18 val-points, KEIN Tversky
+→ „länger trainieren" isoliert testen; User: Geduld, lokale Optima). Log
+`train_dino_fa_inscope_long.log` (Launch-Retry-Wrapper wg. sporadischem Load-OOM).
+GPU teilt sich mit Gemma-4-31B (q4_0 GGUF, ctx 96k, llama-server) → nur ~19GB frei,
+daher bs=4. Wenn User ctx→32k senkt: bs=8 möglich (schneller).
+
+**MERKNOTE Metrik:** `--epochs` = nur Val-Frequenz; `--samples` = echte Trainingslänge.
+Neue Trainingsdaten via `corpus/fa_outscope.txt` (69 Maps raus) → fa_tiles 394→275.
+
 **USER-PLAN (freigegeben): erst DINO-Pipeline auf >0.9 (in-scope), dann HEAT.**
 Wenn HEAT für Höhlen zu wenig ausdrucksstark → HEAT mit MEHR Output-Vertices neu
 trainieren. Out-of-scope-Maps MÜSSEN aus den Trainingsdaten raus.
