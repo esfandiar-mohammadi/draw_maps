@@ -144,7 +144,9 @@ def main():
     ap.add_argument("--model", default="pipeline/models/wall_student_mbv3.onnx")
     ap.add_argument("--port", type=int, default=8177)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--scales", default="768,1024,1536")
+    # single-scale 1024 is the default: on the distilled student it matches
+    # multi-scale graph-F1 (0.721 vs 0.723 in-scope-32) at ~3x the speed.
+    ap.add_argument("--scales", default="1024")
     ap.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 4) - 2))
     ARGS = ap.parse_args()
     import onnxruntime as ort

@@ -1,3 +1,31 @@
+## 2026-07-22 (Mittag) — ✅ SYSTEM FERTIG: Student 0.723 (Gate bestanden), ONNX+Service+Modul E2E
+
+**Sprint durchgelaufen (~50 min gesamt dank fp16).** Ergebnisse in-scope-32 graph-F1:
+- **Student MS = 0.723** (P0.795/R0.688), single = **0.721** — nur **0.005 unter
+  Teacher 0.728**, bei ~180x Kompression (1.1B→6.7M). Gate (>=0.72) BESTANDEN.
+- Single ≈ MS (0.721 vs 0.723) → Deployment nutzt **single-scale 1024** (3x
+  schneller). fp32-ONNX-Parität exakt (0.721), 0.65s/Map hier.
+- Overlays geprüft (corpus/results/student_overlays): water-town 0.78 sauber,
+  worst old-owl-well 0.40 = Geröll-Ruine (Teacher-Schwäche getreu übernommen,
+  kein neuer Defekt). Masken-Val-Dice peakte Ep5 0.599, dann flach ~0.57 (nah
+  Teacher ~0.63) → best-Ckpt Ep5 gespeichert.
+
+**INT8 VERWORFEN (belegt):** per-channel-QDQ kollabiert MobileNetV3 (hardswish/
+hardsigmoid) auf graph-F1 **0.380** (fp32 0.721), trotz 0.32s vs 0.65s. → fp32
+ausliefern; kein QAT vor Deadline. [[int8-mobilenetv3-collapse]]
+
+**Deployment E2E gebaut+getestet:**
+- ONNX-Export `pipeline/export_student_onnx.py` (fp32 26MB, opt-in --int8).
+- graph_eval_student.py: **ONNX-Pfad** ergänzt (ckpt .onnx → onnxruntime;
+  Deployment-Paritäts-Eval). fp32-ONNX = torch = 0.721 verifiziert.
+- Service `pipeline/wall_service.py` (default jetzt single-scale) mit ECHTEM
+  Modell getestet: water-town 483 Wände in 0.63s. Launcher `tools/run_wall_service.sh`.
+- Modul `vendor/auto-wall-companion`: rebuild + smoke grün, `module.zip` (24KB) gepackt.
+- `DEPLOYMENT.md` = Anleitung (Service starten, Modul installieren, re-distillieren).
+
+**Zielhardware-Erwartung:** Ryzen 3600 (kein VNNI) ~2x langsamer → ~1.3s/Map
+single-scale, CPU-only via onnxruntime (KEIN ROCm nötig — gfx1032 eh unsupported).
+
 ## 2026-07-22 (Mittag) — SPRINT BESCHLEUNIGT ~4.7x nachdem User RAM freigab
 
 User gab GPU frei (CUDA free 28→82GB, Gemma geschrumpft) und fragte nach mehr

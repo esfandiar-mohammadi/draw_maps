@@ -22,3 +22,5 @@ corpus/fa/
 corpus/heat_data_fa/
 corpus/fa_tiles/
 corpus/fa_distractors/
+corpus/distill_pl/
+*.data

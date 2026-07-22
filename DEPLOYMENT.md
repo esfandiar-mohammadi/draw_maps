@@ -1,0 +1,73 @@
+# Deployment: automatic wall drawing in Foundry VTT
+
+End-to-end system (built 2026-07-22): a battle-map image goes in, native Foundry
+Wall documents come out, via a distilled CNN running on ordinary hardware.
+
+```
+Foundry scene ──"Detect Walls (ML)" button──▶ local companion service ──▶ walls
+ (auto-wall-companion module)                  (pipeline/wall_service.py)
+```
+
+## Quality (in-scope-32 graph-F1, same protocol as the teacher)
+
+| model | params | graph-F1 | CPU latency @1024² |
+|---|---|---|---|
+| DINOv2 ViT-g teacher (multi-scale) | 1.1 B | 0.728 | ~seconds, GPU-class |
+| **distilled student (fp32 ONNX, single-scale)** | **6.7 M** | **0.721** | **0.65 s** (this host) |
+| student multi-scale | 6.7 M | 0.723 | ~2 s |
+| student INT8 ONNX | 6.7 M | 0.380 ✗ | 0.32 s |
+
+The distilled student is **0.007 below the teacher at ~180× fewer parameters**,
+and single-scale matches multi-scale — so deployment uses single-scale 1024.
+**INT8 is NOT usable** (per-channel QDQ still collapses MobileNetV3's
+hardswish/hardsigmoid activations, 0.72→0.38) — ship fp32. On the target
+Ryzen 3600 (no VNNI) expect roughly ~1.3 s/map single-scale; fine for a
+one-shot import.
+
+## 1. Run the companion service (target machine: Ryzen 3600 / RX 6600)
+
+Pure CPU via onnxruntime — **no ROCm/CUDA needed** (the RX 6600's gfx1032 is
+ROCm-unsupported anyway; see DISTILL_PLAN.md §2):
+
+```bash
+.venv/bin/python pipeline/wall_service.py \
+    --model pipeline/models/wall_student_mbv3.onnx --port 8177
+# GET  http://localhost:8177/health
+# POST http://localhost:8177/detect   body = image bytes -> {walls:[[x0,y0,x1,y1],...]}
+```
+
+Optional faster GPU path (ROCm-free): convert the ONNX to ncnn and run on the
+RX 6600 via Vulkan/RADV — sub-second — but the CPU path already meets the
+latency budget, so this is a later optimization, not required.
+
+## 2. Install the Foundry module
+
+`vendor/auto-wall-companion/module.zip` (rebuild: `npm run build && cd dist &&
+zip -r ../module.zip .`). Install into `Data/modules/auto-wall-companion/` or via
+the host's module importer, then enable it in the world.
+
+- A new **"Detect Walls (ML)"** button appears in the Walls scene controls.
+- Set the service URL in module settings (default `http://localhost:8177`).
+  A browser on `https://…forge-vtt.com` may call `http://localhost` — localhost
+  is a secure context exception.
+- The button fetches the scene background, POSTs it to the service, transforms
+  image-pixel segments to canvas coordinates (accounting for scene padding and
+  background scale, unit-tested), and creates walls in batches of 100.
+- **Existing walls are never touched.** The last detection is undoable from the
+  same dialog (single step, H5).
+
+## 3. Retrain / re-distill
+
+The student is teacher-agnostic. After any teacher improvement
+(DINO_IMPROVEMENT_PLAN.md):
+
+```bash
+setsid bash tools/distill_sprint.sh      # pseudo-label -> train -> eval (~40 min)
+.venv/bin/python pipeline/export_student_onnx.py \
+    --ckpt pipeline/models/wall_student_mbv3.pt --out pipeline/models/wall_student_mbv3.onnx
+```
+
+Model artifacts (`pipeline/models/*.onnx|*.pt`, `corpus/distill_pl/`) are
+git-ignored (size); regenerate with the sprint. graph-F1 check any time:
+`STUDENT_EVAL_DEV=cpu .venv/bin/python pipeline/graph_eval_student.py
+--ckpt pipeline/models/wall_student_mbv3.onnx --scales 1024`.

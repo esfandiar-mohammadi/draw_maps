@@ -1,49 +1,42 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Mittag: P1-SPRINT LÄUFT, DEADLINE 23.07. ABEND (nach `/clear` ZUERST lesen).**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Mittag: ✅ SYSTEM FERTIG (1 Tag vor Deadline). (nach `/clear` ZUERST lesen).**
 > Ältere ⏩-Blöcke darunter = nur Historie.
 >
-> **USER-AUFTRAG: fertiges System bis MORGEN (23.07.) ABEND** = Foundry-Modul +
-> lokaler Companion-Service („serverseitig") + destillierter Student.
-> Go/No-Go-Schwelle **Student ≥0.72** in-scope-32 (Teacher-MS = 0.728).
-> User beendet Gemma „in ein paar Minuten" → GPU wird frei.
+> **USER-AUFTRAG ERFÜLLT: End-to-End-System (Foundry-Modul + lokaler Companion-
+> Service + destillierter Student) steht und ist getestet.** Volle Anleitung:
+> **`DEPLOYMENT.md`**. Deadline war 23.07. Abend — fertig am 22.07. Mittag.
 >
-> **LÄUFT (setsid, überlebt /clear): `tools/distill_sprint.sh`**, Log
-> `corpus/results/distill_sprint.log`. BESCHLEUNIGT ~4.7x (Commit 9512565):
-> 1a Pseudo-Labeling **fp16-Teacher bs32 = 30.8 Maps/min** (war 6.5; fp16
-> gemessen 4.2x, Soft-Labels ident. bis 0.0065) → ~14 min für 621 Maps
-> (474 unlabeled VOLL-Maps dedupliziert + 147 FA-in-scope-TRAIN, MS-Protokoll
-> 768/1024/1536 ref 1024 → `corpus/distill_pl/`) → 1b Nachzügler-Sweep →
-> 2 Training `pipeline/models/wall_student_mbv3.pt` (MobileNetV3-L-U-Net 6.7M,
-> 2ch, BCE+MSE+clDice, **AMP bs128 12 workers**, 160k samples/16ep,
-> Val=fa_tiles-Holdout) → 3 Eval single+MS in-scope-32 (+Overlays
-> corpus/results/student_overlays). Gemma-Warte-Gate ENTFERNT (82GB frei).
-> Status: `tail corpus/results/distill_sprint.log`; `ls corpus/distill_pl/soft|wc -l`;
-> `pgrep -f distill_sprint`. GOTCHA: kein zweiter Teacher daneben ladbar
-> (contiguous-Alloc OOM trotz freiem Speicher). Detail-Chronik notes.md OBEN.
+> **ERGEBNIS (in-scope-32 graph-F1): Student = 0.723 (MS) / 0.721 (single) vs
+> Teacher 0.728** → Gate ≥0.72 BESTANDEN, nur 0.005 unter Teacher bei ~180x
+> Kompression (1.1B DINOv2-ViT-g → 6.7M MobileNetV3-L-U-Net). single ≈ MS →
+> **Deployment = single-scale 1024** (0.65s/Map hier, ~1.3s erwartet Ryzen 3600).
+> **INT8 VERWORFEN** (kollabiert 0.72→0.38, MobileNetV3-Aktivierungen; fp32 ONNX
+> wird ausgeliefert) [[int8-mobilenetv3-collapse]].
 >
-> **DEPLOYMENT-KETTE SCHON GEBAUT + SMOKE-GETESTET (Commit 0bd35a2, 22.07. Mittag):**
-> `pipeline/export_student_onnx.py` (fp32 0.63s / INT8 0.41s @1024² CPU hier;
-> INT8-QUALITÄT UNGEPRÜFT — morgen per graph-F1 gegen fp32 entscheiden),
-> `pipeline/wall_service.py` (stdlib-HTTP :8177, Bild→ONNX-Student→build_graph→
-> Wall-JSON in BILD-PixELN, CORS *, ?format=uvtt; E2E getestet mit Smoke-Student),
-> Modul-Button „Detect Walls (ML)" in vendor/auto-wall-companion (DialogV2
-> Detect/Undo/Cancel, H7-Transform `imageToCanvasSegment` MIT Unit-Fixtures,
-> npm build + `node test/smoke.mjs` GRÜN; vendor/ ist gitignored → Modul-Quellen
-> force-added).
-> **▶️ BEI „continue": (1) Sprint-Log prüfen (gescheitert→Retry-Ursache; Training
-> fertig→Stage-3-Zahlen vs 0.72-Gate, Overlays ANSEHEN corpus/results/
-> student_overlays). (2) DANACH: ONNX-Export vom echten Studenten (--int8),
-> INT8-vs-fp32 graph-F1, Service mit echtem Modell + Wild-Map visuell, Modul-Zip
-> bauen (cd vendor/auto-wall-companion && npm run build && cd dist && zip),
-> E2E in Test-Welt „wall-test" auf Forge, Latenz-Doku für Ziel-HW (Ryzen 3600
-> ~2× langsamer als GB10-CPU schätzen, ncnn+Vulkan optional).**
-> Student-Eval: `pipeline/graph_eval_student.py --per_map` (default = in-scope-32,
-> MEAN direkt; STUDENT_EVAL_DEV=cpu möglich). GOTCHA: WebP>64MB braucht env
-> `OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE` (im Launcher gesetzt).
+> **Artefakte (Modelle git-ignored wg. Größe, lokal vorhanden):**
+> `pipeline/models/wall_student_mbv3.{pt,onnx}` (+_last.pt, +_int8.onnx),
+> Pseudo-Labels `corpus/distill_pl/` (620 Maps, 797MB), Overlays
+> `corpus/results/student_overlays/`, Sprint-Log `corpus/results/distill_sprint.log`.
+> Pipeline: `distill_pseudolabel.py`(--fp16), `train_student.py`(--amp),
+> `graph_eval_student.py`(ONNX-Pfad wenn ckpt=.onnx), `export_student_onnx.py`,
+> `wall_service.py`(:8177, default single-scale), `tools/{distill_sprint,run_wall_service}.sh`.
+> Modul: `vendor/auto-wall-companion` (Button „Detect Walls (ML)", module.zip 24KB).
 >
-> **(B) DINO-VERBESSERUNG (zurückgestellt bis nach Deadline):**
-> `DINO_IMPROVEMENT_PLAN.md` (0.728→0.9). Teacher-Sprünge → Re-Distillation gratis.
+> **▶️ BEI „continue" (offene, NICHT-blockierende Follow-ups, Prio-Reihenfolge):**
+> (1) **E2E in echter Foundry-Test-Welt „wall-test"** auf Forge — Service starten
+> (`bash tools/run_wall_service.sh`), Map-Szene laden, „Detect Walls (ML)" klicken,
+> Wände in-game prüfen (H2, Screenshot). Das ist der einzige noch nicht in echter
+> Foundry verifizierte Schritt (Modul-Logik ist headless smoke-getestet).
+> (2) Optional Qualität: `_last.pt` vs best auf graph-F1 (best war Ep5, Masken-
+> Dice peakte früh); Recall-Hebel (Student R=0.688 < P=0.795) via Tversky/mehr
+> Epochen. (3) Optional Speed: ncnn+Vulkan auf RX 6600 (ROCm-frei). (4) Teacher
+> verbessern (DINO_IMPROVEMENT_PLAN 0.728→0.9) → gratis Re-Distillation via
+> `tools/distill_sprint.sh`.
+>
+> **GOTCHAS diese Runde:** kein zweiter Teacher daneben ladbar (contiguous-OOM
+> trotz freiem Speicher); WebP>64MB braucht `OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE`
+> (im Launcher gesetzt); INT8/MobileNetV3-Kollaps (Memory).
 >
 > **Wild-Showcases (visueller Beleg, committet):** HEAT-ep80 vs DINO-MS auf 12
 > unlabeled Maps: `corpus/results/{heat,dino}_wild_showcase/collage_*.png` —

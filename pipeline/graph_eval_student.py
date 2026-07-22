@@ -22,6 +22,7 @@ import graph_infer
 
 DEV = os.environ.get("STUDENT_EVAL_DEV", "cuda")
 _m = None
+_sess = None
 
 
 def model(ckpt, encoder):
@@ -33,11 +34,26 @@ def model(ckpt, encoder):
     return _m
 
 
+def onnx_sess(path):
+    global _sess
+    if _sess is None:
+        import onnxruntime as ort
+        so = ort.SessionOptions(); so.intra_op_num_threads = max(1, (os.cpu_count() or 4) - 2)
+        _sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
+    return _sess
+
+
 def predict(work, ckpt, encoder):
-    """One padded full-image forward (multiple-of-32 for the U-Net)."""
+    """One padded full-image forward (multiple-of-32 for the U-Net).
+    If ckpt ends in .onnx, run through onnxruntime (deployment parity path)."""
     H, W = work.shape[:2]
     ph, pw = (32 - H % 32) % 32, (32 - W % 32) % 32
     x = (cv2.cvtColor(work, cv2.COLOR_BGR2RGB).astype(np.float32) / 255 - IMEAN) / ISTD
+    if ckpt.endswith(".onnx"):
+        x = np.pad(x, ((0, ph), (0, pw), (0, 0)), mode="reflect").transpose(2, 0, 1)[None]
+        out = onnx_sess(ckpt).run(None, {"image": x.astype(np.float32)})[0][0]
+        out = 1.0 / (1.0 + np.exp(-out))
+        return out[0][:H, :W], out[1][:H, :W]
     t = torch.from_numpy(x.transpose(2, 0, 1))[None]
     t = F.pad(t, (0, pw, 0, ph), mode="reflect").to(DEV)
     with torch.no_grad():
