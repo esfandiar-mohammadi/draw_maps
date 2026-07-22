@@ -1,3 +1,48 @@
+## 2026-07-23 — Qualitäts-Kür: INSTALL.md geschrieben; Student-Recall-Hebel WIDERLEGT
+
+**User-Priorität (nach /clear, Antwort auf AskUserQuestion):** (1) Installations-
+anleitung für Dritte + Zielsystem-Abschnitt, (2) Student-Recall, (3) Speed RX 6600,
+(4) Teacher verbessern. Punkte (1)+(2) hier erledigt.
+
+**(1) INSTALL.md (committet 7de1bc4)** — Dritt-Anleitung: Teil A Companion-Service
+(clone→venv→`pipeline/requirements-service.txt`→`run_wall_service.sh`, Modell-Bezug
+§A.1 da .onnx git-ignored), Teil B Modul (Manifest-URL / manuelles zip / aus Source;
+Modul-ID-Kollisions-Warnung), B.4 Remote/Hosted-Foundry (cloudflared-HTTPS-Tunnel wie
+im E2E), B.5 Konfig+Nutzung, Teil C Zielsystem (Ryzen 3600/RX 6600/Arch): CPU-only-
+Begründung (gfx1032 ROCm-unsupported), 20%-frei-Budget (`--threads 9`), systemd-User-
+Unit, Troubleshooting-Tabelle. Neu: `pipeline/requirements-service.txt` (onnxruntime/
+opencv/numpy, getestete Versionen). Verifiziert: `/health`-JSON = Doku; Modul-Smoke grün.
+
+**(2) STUDENT-RECALL-HEBEL EMPIRISCH WIDERLEGT (Hypothese refuted, H3).** Ziel war,
+die P>R-Lücke (shipped P0.795 > R0.688) zu schließen. Zwei UNABHÄNGIGE Hebel getestet,
+beide scheitern identisch — Recall sitzt bei ~0.69 fest:
+
+| Config | P | R | F1 |
+|---|---|---|---|
+| **shipped (kein Tversky, thr0.4)** | **0.795** | 0.688 | **0.721** |
+| Tversky β=0.7 w=1.0 | 0.771 | 0.688 | 0.715 |
+| Tversky β=0.85 w=1.5 | 0.733 | 0.694 | 0.699 |
+| shipped, thr0.30 | 0.782 | 0.691 | 0.720 |
+| shipped, thr0.25 | 0.766 | 0.693 | 0.714 |
+| shipped, thr0.20 | 0.734 | 0.694 | 0.696 |
+
+- **Loss-Seite:** `train_student.py` um `--tversky_beta` erweitert (SMP-Konvention wie
+  train_dino, beta→FN; committet 563519c). β=0.7 hob Mask-Dice 0.599→0.635, aber
+  graph-Recall blieb EXAKT 0.688; nur Precision fiel → F1 runter. β=0.85/w1.5 noch
+  schlechter (P-Kollaps).
+- **Inferenz-Seite:** `graph_eval_student.py` um `--wall_thr` erweitert (committet a2acdc6).
+  Schwellensenkung 0.4→0.2 auf shipped-Modell hebt Recall nur +0.011, Precision −0.060.
+- **Root cause:** die verfehlten Wände erzeugen ~KEINE Modell-Response (nicht bloß
+  schwache unter der Schwelle) → **Teacher-Blindstellen** (organische Kurven, Geröll),
+  nicht Loss-/Threshold-behebbar. Recall-Gewinn MUSS vom Teacher kommen (Hebel #4
+  DINO_IMPROVEMENT_PLAN → gratis Re-Distillation). [[training-patience-local-optima]]
+- **Entscheidung:** shipped `wall_student_mbv3.{pt,onnx}` bleibt Champion (0.721),
+  Experiment-Ckpts (`_recall.pt`,`_recall85.pt`) gelöscht (schlechter; git-ignored).
+- **Behalten:** `--tversky_beta`/`--w_tversky` (student) + `--wall_thr` (eval) bleiben
+  als Werkzeuge — nützlich, sobald ein besserer Teacher da ist.
+
+---
+
 ## 2026-07-22 (Nachmittag II) — ✅ IN-GAME-E2E in echter Foundry v13 BESTANDEN (letzter offener Schritt)
 
 **Der einzige noch nicht in echter Foundry verifizierte Schritt ist jetzt hart belegt.**
