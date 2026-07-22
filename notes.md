@@ -62,8 +62,32 @@ ROCm-frei (gfx1032 unsupported) via ncnn→Vulkan/RADV.
   Vulkan-GPU) → als Zielrechner-Schritt dokumentiert (INSTALL.md §C.6:
   `NCNN_VULKAN=1 ncnn_eval.py`). Qualitätsparität + CPU-Pfad SIND verifiziert.
 
-**OFFEN (User-Priorität 4): Teacher verbessern** (DINO_IMPROVEMENT_PLAN 0.728→0.9)
-— der EINZIGE Hebel, der Student-Recall hebt (siehe (2)). Als Nächstes.
+**(4) TEACHER — Phase 0 Diagnostik → GRATIS +0.039 Teacher / +0.020 Student
+(Vektorisierer-Fix, KEIN Retraining) (committet 5ee1f0c).**
+- Neues Tool `pipeline/dino_phase0.py` (Plan Phase 0.1): teilt die 0.172-Lücke.
+  Ergebnis in-scope-32: **MASK-UB** (skeletonisierte Roh-Maske vs GT) F1 0.777 R0.787
+  vs **GRAPH** F1 0.728 R0.670 → der **Vektorisierer verliert ~0.12 Recall**, NICHT
+  die Maske. Worst-R-Maps: old-owl-well 0.39, cave-gallery 0.46, fungi-cavern 0.54.
+- **Root cause:** `drop_border_edges` (build_graph) warf pauschal JEDE randnahe Kante
+  weg → löschte ECHTE Perimeter-Wände (Ruinen/Höhlen mit Wänden am Bildrand), nicht
+  nur halluzinierte Rahmen. Beleg: Sweep auf gecachten Teacher-Masken (border_margin=0
+  → 0.767).
+- **Fix:** frame-aware `drop_border_edges(frame_frac=0.7)` — Kante nur droppen, wenn
+  sie eine Randseite zu ≥70% überspannt (echter Rahmen); kurze reale Randwände bleiben.
+  FREI für ALLE Pfade (build_graph geteilt): **Teacher MS 0.729→0.768**, **Student
+  ONNX 1024 (DEPLOYED) 0.721→0.741** (R 0.683→0.722, P intakt 0.791), Student ncnn
+  0.722→0.742. Per-Map: 24 besser / 1 schlechter (briny-maze −0.02) / 7 flat;
+  Overlay bestätigt echte Perimeter-Wände (old-owl-well +0.17, `corpus/results/bm_overlays/`).
+- **Korrigiert Befund (2):** Student-Recall war NICHT rein teacher-bound — ein Teil
+  war vectorizer-bound (Border-Filter), gratis geholt. [[vectorizer-border-filter-recall]]
+- **DEPLOYMENT.md aktualisiert** (Student 0.741, Teacher 0.768). `graph_eval_student`
+  hat jetzt `--border_margin`.
+
+**OFFEN (Phase 1+ DINO_IMPROVEMENT_PLAN, jetzt NIEDRIGERE Prio):** Mask-Recall-Hebel
+(Tversky, Skeleton-Recall-Loss, Auflösung 518) heben die MASKE (0.787) → würden über
+den nun recall-treuen Graph zusätzlich greifen. Phase 3 (DINOv3, ControlNet) braucht
+User-Entscheidungen (Plan §5). **Budget-Gate: User fragen ob Phase 1 lohnt** — der
+billige Vektorisierer-Gewinn ist gebucht.
 
 ---
 
