@@ -37,28 +37,24 @@
 > `wall_service.py`(:8177, default single-scale), `tools/{distill_sprint,run_wall_service}.sh`.
 > Modul: `vendor/auto-wall-companion` (Button „Detect Walls (ML)", module.zip 24KB).
 >
-> **▶️ BEI „continue" — in DIESER Reihenfolge (erst autonom, dann evtl. blockiert):**
-> **(1) AUTONOM ZUERST (kein User nötig, ~10 min):**
->   (a) `_last.pt` vs best-Ckpt auf graph-F1 vergleichen — best war Ep5, Masken-
->   Dice peakte früh, evtl. ist `_last` graph-F1 besser:
->   `STUDENT_EVAL_DEV=cpu .venv/bin/python pipeline/graph_eval_student.py
->   --ckpt pipeline/models/wall_student_mbv3_last.pt --scales 1024`
->   (wenn deutlich besser → als .onnx re-exportieren + Service-Default umstellen).
->   (b) Service-E2E scripten (ohne Foundry): `bash tools/run_wall_service.sh &`
->   dann eine Wild-Map (corpus/real_uvtt o.ä.) an POST /detect schicken, Wände-JSON
->   prüfen + ein Overlay rendern/ANSEHEN (H2) — belegt den Service-Pfad hart.
-> **(2) BRAUCHT USER/FORGE (erst ansagen, nicht raten): In-Game-E2E in Test-Welt
->   „wall-test".** Voraussetzung: Forge-Instanz läuft (v13, Welt „wall-test"
->   existiert lt. GOTCHAS unten; Passwort im Chat geteilt → User soll rotieren)
->   UND der Service ist von Forge aus erreichbar (http://localhost:8177 nur wenn
->   Forge lokal; sonst braucht's einen Tunnel/öffentlichen Service — mit User
->   klären). Modul-`module.zip` in die Welt installieren, Map-Szene laden,
->   „Detect Walls (ML)" klicken, Wände in-game prüfen (Screenshot). = einziger
->   noch nicht in echter Foundry verifizierter Schritt (Modul-Logik headless grün).
-> **(3) OPTIONAL danach:** Recall-Hebel (Student R=0.688 < P=0.795) via
->   `--tversky_beta` bräuchte train_student-Erweiterung / mehr Epochen; Speed
->   ncnn+Vulkan auf RX 6600 (ROCm-frei); Teacher verbessern
->   (DINO_IMPROVEMENT_PLAN 0.728→0.9) → gratis Re-Distillation via `tools/distill_sprint.sh`.
+> **▶️ BEI „continue" — ALLE Verifikation ist DURCH (1)+(2) unten = ERLEDIGT
+> 2026-07-22 Nachmittag, NICHT wiederholen). „continue" heißt jetzt Qualitäts-Kür
+> (3). Falls doch nochmal verifizieren nötig: Rezepte stehen weiter unten.**
+> **(1) ✅ ERLEDIGT — Autonome Checks:** `_last.pt`=0.725 single ≈ shipped best 0.721
+>   (Rauschen → ONNX unverändert). Service-E2E `pipeline/service_e2e.py` auf 3 Wild-
+>   Maps grün. Belege: `corpus/results/{eval_student_last_1024,service_e2e_*}`.
+> **(2) ✅ ERLEDIGT — In-Game-E2E in echter Foundry v13 (Forge):** „Detect Walls (ML)"
+>   → 116 native Wände in 0.49s via HTTPS-cloudflared-Tunnel. Beweis:
+>   `vendor/auto-wall-companion/test-evidence-v13-ml-detect.png`. Modul-ID-Kollision
+>   gefixt → ID jetzt `auto-wall-companion-ml` v2.1.0 [[foundry-module-id-collision]].
+>   Forge-Harness `scratchpad/forge/driver.py` (Playwright); Account-Session war
+>   gültig → kein Passwort nötig (falls next session Login braucht: Account-SID lief
+>   bis 28.07.; sonst Passwort vom User + Captcha manuell). Details: notes.md TOP.
+> **(3) ▶️ AB JETZT „continue" = OPTIONALE QUALITÄTS-KÜR (kein Verifikationsschritt
+>   mehr offen):** Recall-Hebel (Student R=0.688 < P=0.795) via `--tversky_beta`
+>   bräuchte train_student-Erweiterung / mehr Epochen; Speed ncnn+Vulkan auf RX 6600
+>   (ROCm-frei); Teacher verbessern (DINO_IMPROVEMENT_PLAN 0.728→0.9) → gratis
+>   Re-Distillation via `tools/distill_sprint.sh`. **User fragen, was er priorisiert.**
 >
 > **GOTCHAS diese Runde:** kein zweiter Teacher daneben ladbar (contiguous-OOM
 > trotz freiem Speicher); WebP>64MB braucht `OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE`
