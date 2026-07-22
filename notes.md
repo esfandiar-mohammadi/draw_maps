@@ -1,3 +1,23 @@
+## 2026-07-22 (04:30) — Wild-Showcase Teil 2: DINO-MS auf denselben 12 unlabeled Maps
+
+`pipeline/dino_infer_showcase.py` (MS-Protokoll wie Benchmark: scales 768/1024/1536,
+build_graph, KEIN border-drop = eval-treu). Modell `wall_dino_fa_inscope.pt` (0.728).
+Kollagen: `corpus/results/dino_wild_showcase/collage_{reddit,drakkenheim}_dino_ms.png`
+(gleiches Layout wie HEAT-Kollagen → direkt vergleichbar).
+
+Visueller Befund (H2) — bestaetigt das Benchmark-P/R-Profil im Wild-Einsatz:
+- **DINO = high Precision, low Recall**: KEINE Grid-Halluzination (Black Ivory Inn
+  sauber ums Gebaeude, ignoriert schwarzes Raster komplett; Brackish Pool 8 segs
+  statt HEATs Grid-Netz), Out-of-scope wird sauber VERWEIGERT (map01 Wald: 9 segs,
+  map07 Felscanyon: 12 segs). ABER: map02 Wuestenstadt stark undersegmentiert
+  (76 segs vs HEAT ~alle Gebaeude) — der Recall-Mangel ist deutlich sichtbar.
+- **HEAT = mehr Recall + Junk**: findet map02/map07 weitgehend, halluziniert aber
+  Grids/Terrain.
+- Drakkenheim: DINO durchweg sauberer (Kleinburg Outline+Raeume ohne Phantom-Punkte,
+  Rose Theatre deutlich besser als HEAT, King's Gate beide exzellent).
+Fazit fuer Plan: Wild-Eindruck stuetzt die Strategie „Recall in der Maske pushen"
+(DINO laesst echte Waende aus) + Edge-Verification wuerde HEATs Grid-Junk killen.
+
 ## 2026-07-22 (04:00) — Wild-Map-Showcase HEAT-ep80 (unlabeled, nie supervised gesehen)
 
 User-Wunsch: 2 Kollagen mit HEAT-Wand-Annotationen auf Maps ohne Label, nicht im
