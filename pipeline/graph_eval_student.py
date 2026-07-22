@@ -75,13 +75,13 @@ def ms_predict(img, scales, ckpt, encoder, ref_long=1024):
     return wsum / len(scales), jsum / len(scales), rsc
 
 
-def evalmap(path, scales, ckpt, encoder, overlay=None):
+def evalmap(path, scales, ckpt, encoder, overlay=None, wall_thr=0.4):
     r = load_uvtt(path)
     if r["image"] is None or not r["walls"]:
         return None
     wall, junc, sc = ms_predict(r["image"], scales, ckpt, encoder)
     RH, RW = wall.shape
-    nodes, edges = graph_infer.build_graph(wall, junc)
+    nodes, edges = graph_infer.build_graph(wall, junc, wall_thr=wall_thr)
     pred_segs = [(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1]) for a, b, t in edges]
     gt = raster([(x0 * sc, y0 * sc, x1 * sc, y1 * sc) for x0, y0, x1, y1 in r["walls"]], (RH, RW))
     pred = raster(pred_segs, (RH, RW))
@@ -111,6 +111,8 @@ def main():
     ap.add_argument("--fa_list", default="corpus/fa_test_inscope.txt")
     ap.add_argument("--per_map", action="store_true")
     ap.add_argument("--overlay_dir", default="")
+    ap.add_argument("--wall_thr", type=float, default=0.4,
+                    help="binarization threshold in build_graph; lower = higher recall")
     a = ap.parse_args()
     scales = [int(x) for x in a.scales.split(",")]
     if a.overlay_dir:
@@ -123,7 +125,7 @@ def main():
             print(f"MISSING {p}", flush=True)
             continue
         ov = os.path.join(a.overlay_dir, f"student_{s}.png") if a.overlay_dir else None
-        r = evalmap(p, scales, a.ckpt, a.encoder, overlay=ov)
+        r = evalmap(p, scales, a.ckpt, a.encoder, overlay=ov, wall_thr=a.wall_thr)
         if r is None:
             continue
         P, R, Fv = r; Ps.append(P); Rs.append(R); Fs.append(Fv)
