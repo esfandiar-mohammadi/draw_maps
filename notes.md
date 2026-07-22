@@ -15,7 +15,9 @@ bessere Hälfte (0.738 ≈ DINO-caves 0.747). **Oracle(DINO,HEAT-ep80) = 0.763**
 (+0.035) — Routing-Gate lohnt bei der Decke nicht (Plan-Schwelle ~0.85); HEATs
 große Einzel-Wins (sewer-town +0.25, cave-gallery +0.21, mine-caverns +0.13)
 besser über Graph-Level-Edge-Merging (Plan 1.4/2.4) einsammeln.
-Monitor evaluiert noch checkpoint_best.pth und beendet sich dann selbst.
+Nachtrag 03:21: Monitor-Schlussmessung `checkpoint_best.pth` (HEATs interner
+Val-Pick) = **0.694** < ep80 0.703 → **ep80 ist der beste HEAT-in-scope-Ckpt**;
+Monitor hat sich sauber beendet, keine Hintergrund-Jobs mehr offen.
 **Nächster Schritt: DINO_IMPROVEMENT_PLAN.md — wartet auf User-Freigabe.**
 
 ## 2026-07-21 (spät II) — DINO-Verbesserungsplan geschrieben (NICHT ausgeführt) + ep50-Eval-Crash gefixt
