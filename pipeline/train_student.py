@@ -136,6 +136,8 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--node_reg", type=float, default=0.02)
     ap.add_argument("--encoder", default="timm-mobilenetv3_large_100")
+    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--amp", action="store_true", help="mixed-precision training (fp16 autocast + GradScaler)")
     ap.add_argument("--out", default="pipeline/models/wall_student_mbv3.pt")
     a = ap.parse_args()
 
@@ -159,23 +161,27 @@ def main():
     per = a.samples // a.epochs
     ds = MixDS(pseudo, [(fa_tr, a.w_fa), (real, a.w_real), (donjon, a.w_donjon)], per)
     dl = torch.utils.data.DataLoader(ds, batch_size=a.bs, shuffle=True,
-                                     num_workers=8, drop_last=True, persistent_workers=True)
+                                     num_workers=a.workers, drop_last=True,
+                                     persistent_workers=True, prefetch_factor=4)
     vdl = torch.utils.data.DataLoader(ValDS(fa_val), batch_size=a.bs, num_workers=2)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     bce = nn.BCEWithLogitsLoss(); mse = nn.MSELoss()
+    scaler = torch.amp.GradScaler("cuda", enabled=a.amp)
+    print(f"AMP={'on' if a.amp else 'off'} bs={a.bs} workers={a.workers}", flush=True)
     best = 0.0
     for ep in range(1, a.epochs + 1):
         model.train()
         for x, y in dl:
             x, y = x.to(DEV), y.to(DEV)
             opt.zero_grad()
-            out = model(x)
-            wl = torch.sigmoid(out[:, :1]); jl = torch.sigmoid(out[:, 1:])
-            loss = (bce(out[:, :1], y[:, :1]) + mse(wl, y[:, :1])
-                    + 0.4 * soft_cldice(wl, y[:, :1])
-                    + bce(out[:, 1:], y[:, 1:]) + a.node_reg * jl.mean())
-            loss.backward(); opt.step()
+            with torch.autocast("cuda", dtype=torch.float16, enabled=a.amp):
+                out = model(x)
+                wl = torch.sigmoid(out[:, :1]); jl = torch.sigmoid(out[:, 1:])
+                loss = (bce(out[:, :1], y[:, :1]) + mse(wl, y[:, :1])
+                        + 0.4 * soft_cldice(wl, y[:, :1])
+                        + bce(out[:, 1:], y[:, 1:]) + a.node_reg * jl.mean())
+            scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
         sched.step()
         model.eval(); d = 0; nb = 0
         with torch.no_grad():

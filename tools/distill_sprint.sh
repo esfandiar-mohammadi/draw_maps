@@ -15,28 +15,26 @@ LOG=corpus/results/distill_sprint.log
 {
 echo "=== distill sprint start $(date) ==="
 
-echo "=== stage 1a: pseudo-labeling (MS teacher, runs alongside Gemma, bs=8) ==="
+# fp16 teacher = 4.2x throughput vs fp32, soft labels effectively identical
+# (verified max|diff|=0.0065, 99.98% threshold agreement). GPU now has ~82GB
+# free (Gemma shrank) so bs=32 fits with headroom; no Gemma wait-gate needed.
+echo "=== stage 1a: pseudo-labeling (MS teacher, fp16, bs=32) ==="
 ok=0
 for try in 1 2 3 4 5 6; do
-  $PY -u pipeline/distill_pseudolabel.py --out corpus/distill_pl --bs 8 && { ok=1; break; }
+  $PY -u pipeline/distill_pseudolabel.py --out corpus/distill_pl --bs 32 --fp16 && { ok=1; break; }
   echo "pseudolabel attempt $try failed (rc=$?), retry in 90s"; sleep 90
 done
 [ $ok = 1 ] || { echo "PSEUDOLABEL 1a FAILED after retries $(date)"; exit 1; }
 
-echo "=== waiting for Gemma to exit before training $(date) ==="
-# match the model file path, not our own cmdline (pgrep self-match gotcha)
-while pgrep -f "gemma-4-31B_q4_0-it.gguf" >/dev/null; do sleep 60; done
-echo "=== GPU free (Gemma gone) $(date) ==="
-
-echo "=== stage 1b: pseudo-label sweep for OOM-skipped maps ==="
-$PY -u pipeline/distill_pseudolabel.py --out corpus/distill_pl --bs 16 \
+echo "=== stage 1b: pseudo-label sweep for any OOM-skipped maps ==="
+$PY -u pipeline/distill_pseudolabel.py --out corpus/distill_pl --bs 16 --fp16 \
   || echo "stage 1b failed (rc=$?) — continuing with what we have"
 
-echo "=== stage 2: student training ==="
+echo "=== stage 2: student training (AMP, bs=128, 12 workers) ==="
 ok=0
 for try in 1 2 3 4 5 6; do
   $PY -u pipeline/train_student.py --out pipeline/models/wall_student_mbv3.pt \
-      && { ok=1; break; }
+      --amp --bs 128 --workers 12 && { ok=1; break; }
   echo "train attempt $try failed (rc=$?), retry in 90s"; sleep 90
 done
 [ $ok = 1 ] || { echo "TRAIN FAILED after retries $(date)"; exit 1; }

@@ -22,6 +22,8 @@ from train_seg import IMEAN, ISTD
 from train_dino import SZ
 from uvtt import load as load_uvtt
 
+FP16 = False  # set from --fp16: autocast the teacher forward (~2x on a compute-bound ViT)
+
 
 def predict_batched(work, tile=SZ, bs=16):
     """Same tiling/averaging as graph_eval_dino.predict, but batched forwards."""
@@ -40,8 +42,8 @@ def predict_batched(work, tile=SZ, bs=16):
             coords.append((y, x, ch, cw)); batch.append(xx.transpose(2, 0, 1))
     for i in range(0, len(batch), bs):
         xb = torch.from_numpy(np.stack(batch[i:i + bs])).to(G.DEV)
-        with torch.no_grad():
-            out = torch.sigmoid(G.model()(xb)).cpu().numpy()
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16, enabled=FP16):
+            out = torch.sigmoid(G.model()(xb)).float().cpu().numpy()
         for (y, x, ch, cw), o in zip(coords[i:i + bs], out):
             wall[y:y + ch, x:x + cw] += cv2.resize(o[0], (tile, tile))[:ch, :cw]
             junc[y:y + ch, x:x + cw] += cv2.resize(o[1], (tile, tile))[:ch, :cw]
@@ -78,7 +80,12 @@ def main():
     ap.add_argument("--out", default="corpus/distill_pl")
     ap.add_argument("--bs", type=int, default=16)
     ap.add_argument("--limit", type=int, default=0, help="smoke test: only N maps")
+    ap.add_argument("--fp16", action="store_true",
+                    help="autocast teacher forward to fp16 (~2x throughput; soft "
+                         "labels effectively unchanged for distillation)")
     a = ap.parse_args()
+    global FP16
+    FP16 = a.fp16
     G.CKPT = a.ckpt
     scales = [int(x) for x in a.scales.split(",")]
     os.makedirs(f"{a.out}/images", exist_ok=True); os.makedirs(f"{a.out}/soft", exist_ok=True)
