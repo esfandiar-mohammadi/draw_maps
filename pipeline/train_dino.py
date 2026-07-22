@@ -12,9 +12,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from train_seg import augment, IMEAN, ISTD, soft_cldice
+from train_seg import augment, IMEAN, ISTD, soft_cldice, soft_skel, _soft_dilate
 from train_graph import junction_map
 import segmentation_models_pytorch as smp
+
+
+def soft_skeleton_recall(pred, target, iters=8, eps=1e-5):
+    """Skeleton Recall Loss (MIC-DKFZ, ECCV 2024, arXiv:2404.03010): recall of the
+    prediction on the (tubed) GT skeleton. Recall-only on the centerline = exactly
+    the thin-wall miss mode; cheaper than clDice (skeletonize the target only)."""
+    st = _soft_dilate(soft_skel(target, iters))          # GT centerline, tubed +-1px
+    recall = (pred * st).sum((1, 2, 3)) / (st.sum((1, 2, 3)) + eps)
+    return (1 - recall).mean()
 
 DEV = "cuda"
 SZ = 252  # 18 x 14 (DINOv2 patch size 14)
@@ -86,6 +95,12 @@ def main():
                          "0 keeps the default DiceLoss.")
     ap.add_argument("--backbone_init", default="",
                     help="path to a JEPA-adapted ViT-g state_dict to load into the backbone")
+    ap.add_argument("--init", default="",
+                    help="warm-start: load a full DinoSeg state_dict before training "
+                         "(e.g. fine-tune the champion with new recall losses)")
+    ap.add_argument("--skeleton_recall", action="store_true",
+                    help="Phase 1.2: replace 0.4*clDice with 0.4*Skeleton-Recall loss "
+                         "(recall on the GT centerline; the thin-wall recall lever)")
     ap.add_argument("--out", default="pipeline/models/wall_dino_vitg.pt")
     a = ap.parse_args()
     files = sorted(glob.glob(f"{a.data}/images/*.png")); random.seed(0); random.shuffle(files)
@@ -110,6 +125,10 @@ def main():
         miss = model.backbone.load_state_dict(torch.load(a.backbone_init, map_location=DEV), strict=False)
         print(f"loaded JEPA backbone {a.backbone_init} (missing {len(miss.missing_keys)}, "
               f"unexpected {len(miss.unexpected_keys)})", flush=True)
+    if a.init:
+        miss = model.load_state_dict(torch.load(a.init, map_location=DEV), strict=False)
+        print(f"warm-start from {a.init} (missing {len(miss.missing_keys)}, "
+              f"unexpected {len(miss.unexpected_keys)})", flush=True)
     model.set_finetune_last4()
     n = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"DINOv2 ViT-g last-4 + head: {n/1e6:.1f}M trainable / "
@@ -125,13 +144,16 @@ def main():
         print(f"wall region loss: Tversky(alpha={1.0 - a.tversky_beta:.2f}, beta={a.tversky_beta:.2f}) [recall-favoring]", flush=True)
     else:
         wall_region = dloss
+    conn_loss = soft_skeleton_recall if a.skeleton_recall else soft_cldice
+    if a.skeleton_recall:
+        print("connectivity term: Skeleton-Recall loss (replaces clDice)", flush=True)
     best = 0
     for ep in range(1, a.epochs + 1):
         model.train()
         for x, y in dl:
             x, y = x.to(DEV), y.to(DEV); opt.zero_grad()
             out = model(x); wl = torch.sigmoid(out[:, :1]); jl = torch.sigmoid(out[:, 1:])
-            loss = (bce(out[:, :1], y[:, :1]) + wall_region(out[:, :1], y[:, :1]) + 0.4 * soft_cldice(wl, y[:, :1])
+            loss = (bce(out[:, :1], y[:, :1]) + wall_region(out[:, :1], y[:, :1]) + 0.4 * conn_loss(wl, y[:, :1])
                     + bce(out[:, 1:], y[:, 1:]) + a.node_reg * jl.mean())
             loss.backward(); opt.step()
         model.eval(); d = 0; nb = 0
