@@ -1,25 +1,38 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Vormittag (nach `/clear` ZUERST lesen).**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Mittag: P1-SPRINT LÄUFT, DEADLINE 23.07. ABEND (nach `/clear` ZUERST lesen).**
 > Ältere ⏩-Blöcke darunter = nur Historie.
 >
-> **STAND: User-Fokus = DINO. Zwei offene Stränge, BEIDE warten auf User-Wahl:**
-> **(A) DISTILLATION (heutiger Task, User-Prio!):** Recherche KOMPLETT, Vorschläge
-> in **`DISTILL_PLAN.md`** (P1 CNN-Student = Empfehlung, 4–6 Tage; P2 Structured-
-> Forest-Probe = User-Baum-Idee [Laptev&Buhmann GCPR'14 identifiziert]; P3 Guided-
-> Filter+Kaskade; P0 Teacher-direkt-auf-RX6600 NICHT empfohlen — gfx1032/ROCm
-> fragil). Ziel-Hardware: Ryzen 3600 + RX 6600 8GB + 16GB, Arch, **20% Reserve**
-> (Memory: user-target-hardware). Qualitätsziel „ähnlich DINO" = 0.728 in-scope.
-> **▶️ BEI „continue": DISTILL_PLAN.md §3+§5 dem User kompakt präsentieren,
-> P1-Start empfehlen (Pipeline ist Teacher-agnostisch, kein Regret); auf Wahl
-> warten bzw. bei Freigabe P1 Schritt 1 = Pseudo-Label-Job (DINO-MS auf 176k
-> Crops, setsid auf GB10) aufsetzen.** onnx+onnxruntime sind schon im .venv
-> (Research-Agent hat Studenten-Latenzen hier gemessen: MobileNetV3-L-U-Net 6.7M
-> = 0.63s @1024² CPU).
-> **(B) DINO-VERBESSERUNG:** `DINO_IMPROVEMENT_PLAN.md` (0.728→0.9, Phasen mit
-> Gates; Zeitschätzung: Ph1 2–3d, Ph2 ~1–1.5Wo, Ph3 ~2–3Wo, gesamt 4–6 Wo).
-> Wartet auf User-Go; §5 = User-Entscheidungen (DINOv3-Lizenz, Civitai-Lizenzen).
-> Läuft NICHTS im Hintergrund (HEAT-Arc sauber beendet, GPU frei bis auf Gemma).
+> **USER-AUFTRAG: fertiges System bis MORGEN (23.07.) ABEND** = Foundry-Modul +
+> lokaler Companion-Service („serverseitig") + destillierter Student.
+> Go/No-Go-Schwelle **Student ≥0.72** in-scope-32 (Teacher-MS = 0.728).
+> User beendet Gemma „in ein paar Minuten" → GPU wird frei.
+>
+> **LÄUFT (setsid, überlebt /clear): `tools/distill_sprint.sh`**, Log
+> `corpus/results/distill_sprint.log`. Stufen: 1a Pseudo-Labeling NEBEN Gemma
+> (~2.3 Maps/min → ~3-4.5h für 621 Maps; 474 unlabeled VOLL-Maps dedupliziert +
+> 147 FA-in-scope-TRAIN, MS-Protokoll 768/1024/1536 ref 1024 →
+> `corpus/distill_pl/`) → wartet auf Gemma-Exit → 1b Nachzügler-Sweep →
+> 2 Training `pipeline/models/wall_student_mbv3.pt` (MobileNetV3-L-U-Net 6.7M,
+> 2ch, BCE+MSE+clDice, 160k samples/16ep, Val=fa_tiles-Holdout) →
+> 3 Eval single+MS in-scope-32 (+Overlays corpus/results/student_overlays).
+> Status: `tail corpus/results/distill_sprint.log`; `ls corpus/distill_pl/soft|wc -l`;
+> `pgrep -f distill_sprint`. Commit a1d9b40; Detail-Chronik notes.md OBEN.
+>
+> **▶️ BEI „continue": (1) Sprint-Log prüfen (Stufe? gescheitert→Retry-Ursache im
+> Log; Training fertig→Stage-3-Zahlen mit 0.72-Gate vergleichen, Overlays ANSEHEN).
+> (2) Weiter am Deployment bauen (Reihenfolge): `pipeline/export_student_onnx.py`
+> (+INT8 per-channel QDQ), `pipeline/wall_service.py` (Bild→Student→build_graph→
+> Wall-JSON in BILD-Pixeln; CORS *; onnxruntime-CPU), Modul-Button „Detect walls
+> (ML)" in vendor/auto-wall-companion (importiert `{c:[x0,y0,x1,y1]}`-Arrays via
+> processWallImport; Padding/Scale-Transform H7 im Modul + Unit-Test; http://localhost
+> von https aus ok, secure-context-Ausnahme), E2E in Test-Welt „wall-test".**
+> Student-Eval: `pipeline/graph_eval_student.py --per_map` (default = in-scope-32,
+> MEAN direkt; STUDENT_EVAL_DEV=cpu möglich). GOTCHA: WebP>64MB braucht env
+> `OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE` (im Launcher gesetzt).
+>
+> **(B) DINO-VERBESSERUNG (zurückgestellt bis nach Deadline):**
+> `DINO_IMPROVEMENT_PLAN.md` (0.728→0.9). Teacher-Sprünge → Re-Distillation gratis.
 >
 > **Wild-Showcases (visueller Beleg, committet):** HEAT-ep80 vs DINO-MS auf 12
 > unlabeled Maps: `corpus/results/{heat,dino}_wild_showcase/collage_*.png` —

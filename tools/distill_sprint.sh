@@ -7,6 +7,8 @@
 set -u
 cd /home/spark1admin/draw_maps
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# drakkenheim webp maps are up to ~130MB; OpenCV default cap is 64MB
+export OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE=1073741824
 PY=/home/spark1admin/draw_maps/.venv/bin/python
 LOG=corpus/results/distill_sprint.log
 

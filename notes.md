@@ -1,3 +1,50 @@
+## 2026-07-22 (Vormittag) — P1-SPRINT GESTARTET: Deadline morgen Abend, System = Modul+Service+Student
+
+**User-Entscheidungen:** Deadline **morgen (23.07.) Abend** fuer ein fertiges System;
+"serverseitig" = lokaler Companion-Service, den das Foundry-Modul anspricht;
+Go/No-Go-Schwelle Student **>=0.72** in-scope-32. User macht GPU frei (beendet Gemma) —
+Sprint wartet darauf automatisch.
+
+**Läuft (setsid, ueberlebt /clear): `tools/distill_sprint.sh`**, Log
+`corpus/results/distill_sprint.log`. Stage 1a Pseudo-Labeling laeuft SOFORT neben
+Gemma (bs=8, ~2.3 Maps/min unter Contention → ~3-4.5h); wartet dann auf Gemma-Exit
+(pgrep auf gguf-Dateinamen, kein Selbstmatch); Stage 1b Nachzuegler-Sweep; Stage 2
+Training `wall_student_mbv3.pt`; Stage 3 Eval single+MS auf in-scope-32 mit Overlays.
+
+**Kern-Redesign ggue. Plan:** Die "176k Crops" waren 176k POOL-ZEILEN mit Duplikaten —
+dedupliziert sind es **474 unlabeled VOLL-Maps** (drakkenheim 383 bis 12k×12k! +
+ssl_real 83 + maps 8) + **147 FA-in-scope-TRAIN-Maps** (nie fa_test/outscope) =
+621 Maps, alle mit dem exakten MS-Teacher-Protokoll (768/1024/1536, ref 1024 =
+0.728-Betriebspunkt) gelabelt → `corpus/distill_pl/{images,soft}/` (soft-PNG:
+ch0=wall, ch1=junc). Student trainiert auf Random-Crops 256–640px daraus (native
+Skala der spaeteren 1024er-Inferenz) + harte Anker fa_tiles(0.25)/real(0.15)/
+donjon-cap-8k(0.15). Loss BCE+MSE+0.4·clDice(wall)+BCE(junc)+node-reg; Val =
+fa_tiles-Holdout (train_dino-Konvention), best-Dice-Checkpoint.
+
+**Neue Dateien (committet a1d9b40):** `pipeline/distill_pseudolabel.py` (GEBATCHTE
+Tile-Inferenz statt 1-Tile-Forwards, resumefaehig, OOM-Fallback bs4+Skip),
+`pipeline/train_student.py`, `pipeline/graph_eval_student.py` (identisches Metrik-
+Protokoll, aber 1 gepaddeter Forward/Skala statt 252er-Tiling; STUDENT_EVAL_DEV=cpu
+moeglich; --fa_list default in-scope-32 → MEAN direkt vergleichbar),
+`tools/distill_sprint.sh`, Listen `corpus/distill_{unlabeled,fa_train}.txt`.
+
+**Gotchas dieser Runde:** (a) OpenCV imread verweigert WebP >64MB → env
+`OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE=1073741824` (drakkenheim bis 130MB).
+(b) Alter Warte-Loop aus Vorsession hing im pgrep-SELBSTMATCH (wartete ewig auf
+train_dino…inscope_long) → gekillt; Launcher matcht deshalb auf den gguf-Dateinamen.
+(c) Smoke-E2E verifiziert: pseudolabel(1 FA-Map, visuell geprueft: teacher-typisch
+fette Soft-Waende + Moebel-Unsicherheit — build_graph schwellwertet das) →
+train(48 samples, val-Dice 0.427) → graph_eval(1 Map CPU, F1 0.40). Mechanik ok.
+
+**Foundry-Plan (morgen):** vendor/auto-wall-companion (v13-verifiziert) importiert
+Wall-Arrays `{c:[x0,y0,x1,y1],…}` in die AKTUELLE Szene (processWallImport,
+100er-Batches). Neuer Tool-Button "Detect walls (ML)": Szenen-Bild → POST
+localhost-Service (http://localhost von https aus erlaubt, secure-context-Ausnahme;
+CORS * im Service) → Walls in BILD-Pixeln → Modul rechnet Padding/Scale-Transform
+(H7! sceneX/Y-Offsets, Unit-Test) → createEmbeddedDocuments. Service:
+`pipeline/wall_service.py` (heute noch): Bild → Student (ONNX/torch) → build_graph
+→ JSON; optional UVTT-Export mit grid_detect-ppg fuer Neu-Szenen-Flow.
+
 ## 2026-07-22 — Distillations-Recherche komplett; DISTILL_PLAN.md geschrieben (User waehlt)
 
 **User-Richtung:** Fokus auf DINO (HEAT-Arc zu). Neuer Task: Modell auf User-Hardware
