@@ -41,6 +41,30 @@ beide scheitern identisch — Recall sitzt bei ~0.69 fest:
 - **Behalten:** `--tversky_beta`/`--w_tversky` (student) + `--wall_thr` (eval) bleiben
   als Werkzeuge — nützlich, sobald ein besserer Teacher da ist.
 
+**(3) SPEED RX 6600 — ncnn+Vulkan-Pfad GEBAUT + Qualität verifiziert (committet c15c21e).**
+ROCm-frei (gfx1032 unsupported) via ncnn→Vulkan/RADV.
+- ONNX→ncnn per **pnnx** (`inputshape=[1,3,1024,1024]`, fp16, 13MB param+bin).
+  Netz ist voll-konvolutional, aber pnnx backt absolute Interp-Ausgabegröße (1024²)
+  ein → Inferenz PADded Work-Bild (Längsseite ≤1024) auf 1024²-Quadrat, cropt zurück.
+- **Qualität deployment-gleich:** ncnn-CPU graph-F1 **0.722** (P0.796 R0.684) vs
+  ONNX 0.721; Masken-IoU ONNX-vs-ncnn 0.976, |diff|-mean 0.002. fp16 = Rauschen.
+- Neu `pipeline/ncnn_eval.py` (torch-freie Graph-F1-Eval, ~287ms/Map fwd CPU hier).
+  `wall_service.py`: `--backend {onnx,ncnn} [--vulkan]`; **train_seg/torch-Import
+  raus** (IMEAN/ISTD inline) → Deploy-Service braucht kein torch mehr. Beide Backends
+  E2E getestet (onnx 161 Wände/0.42s, ncnn 170/0.59s auf echter Map); /health nennt Backend.
+  `graph_infer`: torch/smp jetzt lazy (build_graph torch-frei).
+- **GOTCHA (aarch64-Dev-Box):** ncnn + skimage/torch OpenMP → nichtdeterministischer
+  Segfault (ncnn im Loop). Fixes: onnxruntime VOR ncnn importieren (OpenMP-Stabilisator);
+  ncnn-Eval in 2 Phasen (erst alle Forward-Passes, dann skimage/build_graph). Der
+  x86-Zielrechner ist NICHT betroffen (bewiesen: Service-Backend E2E lief hier durch,
+  ein Request pro Handler → kein Loop-Crash). [[user-target-hardware]]
+- **NICHT verifiziert:** Vulkan-Latenz auf echter RX 6600 (Dev-Box hat keine
+  Vulkan-GPU) → als Zielrechner-Schritt dokumentiert (INSTALL.md §C.6:
+  `NCNN_VULKAN=1 ncnn_eval.py`). Qualitätsparität + CPU-Pfad SIND verifiziert.
+
+**OFFEN (User-Priorität 4): Teacher verbessern** (DINO_IMPROVEMENT_PLAN 0.728→0.9)
+— der EINZIGE Hebel, der Student-Recall hebt (siehe (2)). Als Nächstes.
+
 ---
 
 ## 2026-07-22 (Nachmittag II) — ✅ IN-GAME-E2E in echter Foundry v13 BESTANDEN (letzter offener Schritt)
