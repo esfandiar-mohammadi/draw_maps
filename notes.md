@@ -1,3 +1,23 @@
+## 2026-07-22 (03:15) — HEAT-in-scope-Arc ABGESCHLOSSEN: Plateau bei 0.703, Training gestoppt
+
+**Ergebnis: HEAT-in-scope-FT schlägt DINO NICHT.** Snapshot-Kurve (in-scope-32,
+graph-F1, via Overnight-Monitor): ep50 0.682 / ep60 0.702 / ep70 0.696 / **ep80
+0.703** (buildings ~0.69 flach, caves 0.694→0.741→0.738 ausgeflacht). Loss +
+edge_acc (0.68) + corner_recall (0.29) ebenfalls flach über viele Epochen →
+echtes Plateau über 30 Epochen, alle drei Kurven. Training bei ep84 gestoppt
+(User-Regel „bei Graph-F1-Plateau stoppen"; Wrapper + python per PID gekillt,
+SIGKILL nötig). GPU wieder frei für Gemma.
+
+**Einordnung:** DINO-MS in-scope bleibt Champion **0.728** (HEAT best 0.703,
+Δ −0.025). Die dd2vtt-Buildings-Stärke (0.926) hat NICHT auf FA-in-scope
+übertragen (buildings 0.689 < DINO-buildings 0.721!). Caves überraschend HEATs
+bessere Hälfte (0.738 ≈ DINO-caves 0.747). **Oracle(DINO,HEAT-ep80) = 0.763**
+(+0.035) — Routing-Gate lohnt bei der Decke nicht (Plan-Schwelle ~0.85); HEATs
+große Einzel-Wins (sewer-town +0.25, cave-gallery +0.21, mine-caverns +0.13)
+besser über Graph-Level-Edge-Merging (Plan 1.4/2.4) einsammeln.
+Monitor evaluiert noch checkpoint_best.pth und beendet sich dann selbst.
+**Nächster Schritt: DINO_IMPROVEMENT_PLAN.md — wartet auf User-Freigabe.**
+
 ## 2026-07-21 (spät II) — DINO-Verbesserungsplan geschrieben (NICHT ausgeführt) + ep50-Eval-Crash gefixt
 
 **User-Auftrag: Online-Research + Plan für DINO-Pipeline-Verbesserung, nur aufschreiben.**

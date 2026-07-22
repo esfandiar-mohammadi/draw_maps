@@ -1,65 +1,46 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-21 (ABEND; HEAT-Arc; nach `/clear` ZUERST lesen).**
-> Der `⏩⏩⏩`-Block darunter (2026-07-21 früher, DINO-Long) ist ÜBERHOLT — nur Historie.
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 (~03:15; nach `/clear` ZUERST lesen).**
+> Der `⏩⏩⏩`-Block darunter (2026-07-21 Abend, HEAT-Arc) ist ÜBERHOLT — nur Historie.
 >
-> **AKTUELLE RICHTUNG: HEAT-in-scope fine-tunen (User hat DINO-Long ABGEBROCHEN).**
-> Ziel unverändert: FA-in-scope-Graph-F1 Richtung 0.9. DINOv2-Long (`wall_dino_fa_
-> inscope_long.pt`) bei ep12/18 gekillt (bester MASK-val-Dice 0.666@ep8, plateauiert;
-> Ckpt bleibt liegen). Jetzt HEAT (49M, Buildings-Spezialist).
+> **STAND: HEAT-in-scope-Arc ABGESCHLOSSEN (Plateau), DINO-PLAN WARTET AUF USER.**
 >
-> **▶️ BEI „continue" ZUERST — 2 Jobs prüfen (beide setsid, überleben /clear):**
-> (1) **HEAT-Training** LÄUFT: `pgrep -f "train.py.*s3d_floorplan"`; Fortschritt
-> `grep -oE "Epoch: \[[0-9]+\]" corpus/results/train_heat_fa_inscope.log | tail -1`
-> (Stand: ~ep51). Warmstart ep45→46 vom 0.926-dd2vtt-Champ; **~10 min/Epoche**
-> (Gemma-GPU-Sharing!), Cap 250 = ~34h → **NICHT auslaufen lassen**; User-Entscheid
-> „laufen lassen, früh stoppen": Snapshots (`save_every 10` → ckpts_heat_fa_inscope/
-> checkpoint_ep{50,60,…}.pth) per CPU-Eval messen, bei Graph-F1-**Plateau stoppen**
-> (kill python-PID; wrapper ist eh tot). Output `vendor/heat/checkpoints/
-> ckpts_heat_fa_inscope/`. Symlink `vendor/heat/data/s3d_floorplan → heat_data_fa_inscope`.
-> (2) **32-Map-ep48-Baseline-Eval** lief noch (`corpus/results/heat_inscope_probe.log`,
-> `grep "MEAN HEAT"`); nur Sanity/Methode-Check auf altem ep48-Ckpt.
-> (3) **OVERNIGHT-MONITOR LÄUFT DETACHED** (`pipeline/heat_snapshot_monitor.py`, setsid,
-> überlebt /clear): evaluiert JEDEN neuen `checkpoint_ep*.pth` per CPU auf in-scope-32
-> und schreibt ep→F1-Tabelle (mean + buildings/caves) nach
-> **`corpus/results/heat_snapshot_summary.txt`** — DA nach /clear ZUERST reingucken
-> (nicht neu aufsetzen!). Monitor-Log `heat_snapshot_monitor.log`, Einzel-Evals
-> `heat_snapshot_evals/ep*.log`. Prüfen ob er noch lebt: `pgrep -f heat_snapshot_monitor`;
-> wenn tot + Training läuft noch → mit dem Launch-Cmd im Docstring neu starten.
-> Besten Snapshot aus der Tabelle picken, mit DINO 0.728 vergleichen.
+> **HEAT-Ergebnis (2026-07-22): schlägt DINO NICHT.** Fine-tune konvergierte bei
+> in-scope-32 graph-F1 **0.703** (ep80; Kurve ep50–80: 0.682/0.702/0.696/0.703,
+> buildings ~0.69 flach, caves ~0.74 ausgeflacht; auch loss/edge_acc/corner_recall
+> flach) → Training bei ep84 gestoppt (User-Regel „bei Plateau stoppen"). Beste
+> Snapshots: `vendor/heat/checkpoints/ckpts_heat_fa_inscope/checkpoint_ep{60,80}.pth`.
+> dd2vtt-Buildings-Stärke übertrug NICHT (HEAT-buildings 0.689 < DINO 0.721);
+> caves waren HEATs bessere Hälfte (0.738). **Oracle(DINO,HEAT-ep80)=0.763** (+0.035)
+> → Per-Map-Routing-Gate lohnt nicht (Schwelle ~0.85); HEATs Einzel-Wins (sewer-town
+> +0.25, cave-gallery +0.21) später über Graph-Level-Edge-Merging einsammeln.
+> Snapshot-Tabelle: `corpus/results/heat_snapshot_summary.txt`; Einzel-Evals
+> `heat_snapshot_evals/ep*.log`. Monitor beendet sich selbst nach checkpoint_best-Eval.
 >
-> **CPU-EVAL (Balken-Messung, stört Training NICHT — nutze das für Snapshots):**
+> **BALKEN unverändert: DINO-FA-in-scope 0.728 (MS) = Champion. HEAT dd2vtt 0.926.**
+>
+> **▶️ NÄCHSTER SCHRITT (wartet auf User-Freigabe): `DINO_IMPROVEMENT_PLAN.md`**
+> (Repo-Root, committet efccdfe) — recherchierter Phasen-Plan 0.728→0.9:
+> „Recall in der Maske, Precision im Graph". Phase 0 Diagnostik (Mask-UB vs Graph-F1,
+> Recall-Miss-Taxonomie) → Phase 1 Tversky-0.7 + Skeleton-Recall-Loss + Flip-TTA +
+> MRF-Edge-Pruning → Phase 2 Auflösung 518 + LoRA + OHEM/FDA + gelernte Edge-
+> Verification → Phase 3 DINOv3-ViT-L (GATED: User-Lizenz!) + UniMatch-V2-SSL +
+> ControlNet-Synthesedaten + CAGE. User-Entscheidungen in §5 des Plans.
+> Tversky-Flag-Konvention bereits VERIFIZIERT korrekt (SMP: beta→FN-Term).
+>
+> **EVAL-GOTCHA NEU:** `heat_eval_uvtt.py` cappt jetzt Corners auf Top-350 nach
+> Confidence (vendor `all_combibations` deckt nur 2–350; spätere FT-Ckpts feuerten
+> >350 auf cluttered Tiles → KeyError-Crash; gefixt + committet).
+>
+> **CPU-EVAL-Rezept (für HEAT-Snapshots, GPU-frei):**
 > `HEAT_EVAL_DEV=cpu OMP_NUM_THREADS=8 .venv/bin/python pipeline/heat_eval_uvtt.py
-> --ckpt vendor/heat/checkpoints/ckpts_heat_fa_inscope/checkpoint_ep60.pth
-> --image_size 256 --fa_test --fa_list corpus/fa_test_inscope.txt --per_map`
-> (~70s/Map CPU → ~35min/32). Overlays: `--overlay_dir DIR` (GRÜN=GT, ROT=pred).
-> 3 CPU-Fixes drin (heat_eval_uvtt.py + vendor/heat ms_deform_attn.py, letzteres
-> git-ignored): DataParallel→bare+strip, ResNetBackbone.train()→None (in-place),
-> MSDeformAttn CPU-Fallback. **Snapshot vor Eval kopieren** (checkpoint.pth wird
-> überschrieben). PID-Waiter statt pgrep (Selbstmatch); auf ECHTE python-PID warten,
-> NICHT auf setsid-Launcher-Bash (der exitet sofort).
+> --ckpt <ckpt> --image_size 256 --fa_test --fa_list corpus/fa_test_inscope.txt
+> --per_map` (~70s/Map idle, ~3min/Map unter Gemma-Contention). Overlays:
+> `--overlay_dir DIR` (GRÜN=GT, ROT=pred). CPU-Fixes: DataParallel→bare+strip,
+> ResNetBackbone.train()-in-place, MSDeformAttn-CPU-Fallback (vendor, git-ignored).
+> In-scope-Mean IMMER selbst gegen `corpus/fa_test_inscope.txt` rechnen.
 >
-> **DIAGNOSE ep48 (früh, ~3 FT-Epochen): mean der ersten Maps ~0.66, GEMISCHT.**
-> Stark: depleted-mine 0.94, crypt 0.87, cave-gallery 0.81, barracks 0.81. Schwach:
-> decrepit-attic 0.32, briny-maze(cave) 0.36, confectionery 0.44. **Fehlermodus =
-> PRECISION, nicht Recall** (P 0.25–0.39 / R 0.38–0.60): HEAT findet echte Wände,
-> erfindet aber Falsch-Positive: (a) Außendächer/Strukturen außerhalb GT-Footprint,
-> (b) Möbel/Textur INNEN, (c) Bild-Rand-Kasten (→ `drop_border_edges`-Leck prüfen).
-> Höhlen: glatte Kurve wird fragmentiert + Innen-Clutter halluziniert (organisch-Fail).
-> Overlay-Beleg: `corpus/results/heat_weak_overlays/`.
->
-> **VERBESSERUNGS-HEBEL (nach genug Training-Snapshots):**
-> 1. Weiter trainieren — Clutter-Unterdrückung sollte mit Epochen kommen (starke Maps
->    zeigen dass es geht). Kurve ansehen, [[training-patience-local-optima]].
-> 2. **Mehr Output-Vertices** (`--max_corner_num` >150, User-Vorgabe) — v.a. für Höhlen-
->    Kurven; ggf. HEAT für Höhlen neu trainieren.
-> 3. **Per-Map-Routing HEAT(buildings)+DINO(caves)** — DINO ist auf organischen Höhlen
->    besser, HEAT auf Buildings. Höhlen→DINO, Buildings→HEAT.
-> 4. `drop_border_edges` gegen den Rand-Kasten härten.
->
-> **BALKEN (bis Gegenbeweis): DINO-FA-in-scope 0.728 (MS) / HEAT dd2vtt 0.926.**
-> HEAT-in-scope voll-32-Zahl auf einem konvergierten Snapshot vs 0.728 vergleichen.
-> Detail-Chronik: notes.md OBERSTER Eintrag (2026-07-21 Abend). Commit 59bb04f.
+> Detail-Chronik: notes.md OBERSTE 3 Einträge. Commits 59bb04f → efccdfe.
 >
 > ---
 >
