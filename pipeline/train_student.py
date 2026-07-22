@@ -135,6 +135,12 @@ def main():
     ap.add_argument("--bs", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--node_reg", type=float, default=0.02)
+    ap.add_argument("--tversky_beta", type=float, default=0.0,
+                    help="if >0, add a recall-favoring Tversky term on the wall "
+                         "channel with this beta (FN weight; alpha=1-beta). "
+                         "0.7 penalizes false negatives 0.7 vs false positives 0.3.")
+    ap.add_argument("--w_tversky", type=float, default=1.0,
+                    help="weight of the Tversky term (only used if tversky_beta>0)")
     ap.add_argument("--encoder", default="timm-mobilenetv3_large_100")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--amp", action="store_true", help="mixed-precision training (fp16 autocast + GradScaler)")
@@ -167,6 +173,14 @@ def main():
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     bce = nn.BCEWithLogitsLoss(); mse = nn.MSELoss()
+    # optional recall-favoring wall loss (same convention as train_dino.py, SMP:
+    # beta weights the false-negative term). Works with soft teacher targets too.
+    tversky = None
+    if a.tversky_beta > 0:
+        tversky = smp.losses.TverskyLoss(mode="binary",
+                                         alpha=1.0 - a.tversky_beta, beta=a.tversky_beta)
+        print(f"wall Tversky ON: alpha={1.0 - a.tversky_beta:.2f} beta={a.tversky_beta:.2f} "
+              f"w={a.w_tversky} [recall-favoring]", flush=True)
     scaler = torch.amp.GradScaler("cuda", enabled=a.amp)
     print(f"AMP={'on' if a.amp else 'off'} bs={a.bs} workers={a.workers}", flush=True)
     best = 0.0
@@ -181,6 +195,8 @@ def main():
                 loss = (bce(out[:, :1], y[:, :1]) + mse(wl, y[:, :1])
                         + 0.4 * soft_cldice(wl, y[:, :1])
                         + bce(out[:, 1:], y[:, 1:]) + a.node_reg * jl.mean())
+                if tversky is not None:
+                    loss = loss + a.w_tversky * tversky(out[:, :1], y[:, :1])
             scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
         sched.step()
         model.eval(); d = 0; nb = 0
