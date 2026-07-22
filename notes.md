@@ -1,3 +1,24 @@
+## 2026-07-22 (Mittag) — SPRINT BESCHLEUNIGT ~4.7x nachdem User RAM freigab
+
+User gab GPU frei (CUDA free 28→82GB, Gemma geschrumpft) und fragte nach mehr
+Parallelisierung. **Befund: Labeling war der kritische Pfad, GPU-Auslastung 96%
+= compute-bound auf dem 1.1B-Teacher → größere Batches allein bringen wenig.**
+Echter Hebel = **fp16-autocast des Teachers**: auf echter Map GEMESSEN 4.2x
+(11.78s→2.79s), Soft-Labels praktisch identisch (wall |diff| mean 0.0002 / max
+0.0065, >0.5-Agreement 99.98%) → keine Qualitätskosten. In Produktion mit bs32
++ weniger Gemma-Contention: **30.8 Maps/min statt 6.5** (~4.7x) → Restlauf
+~14 min statt ~66. Peak nur 9.1GB bei bs24 (von 82GB).
+
+Zweiter Gotcha bestätigt: **kein zweiter Teacher daneben ladbar** (contiguous-
+Alloc OOM trotz freiem Speicher) → Benchmarks nur nach Stop des laufenden Jobs.
+Sprint sauber gestoppt (141 fp32-Labels behalten, resumebar; gemischt fp32/fp16
+für Distillation unkritisch) und mit fp16/bs32 neu gestartet.
+
+Weitere Änderungen (Commit 9512565): Student-Training jetzt **AMP** (autocast+
+GradScaler, smoke-getestet kein NaN mit fp16-clDice) + **bs128 + 12 workers +
+prefetch**; **Gemma-Warte-Gate entfernt** (82GB frei → Training braucht kein
+Warten). `distill_pseudolabel.py --fp16`, `train_student.py --amp/--workers`.
+
 ## 2026-07-22 (Vormittag) — P1-SPRINT GESTARTET: Deadline morgen Abend, System = Modul+Service+Student
 
 **User-Entscheidungen:** Deadline **morgen (23.07.) Abend** fuer ein fertiges System;

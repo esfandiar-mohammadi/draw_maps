@@ -9,15 +9,18 @@
 > User beendet Gemma „in ein paar Minuten" → GPU wird frei.
 >
 > **LÄUFT (setsid, überlebt /clear): `tools/distill_sprint.sh`**, Log
-> `corpus/results/distill_sprint.log`. Stufen: 1a Pseudo-Labeling NEBEN Gemma
-> (~2.3 Maps/min → ~3-4.5h für 621 Maps; 474 unlabeled VOLL-Maps dedupliziert +
-> 147 FA-in-scope-TRAIN, MS-Protokoll 768/1024/1536 ref 1024 →
-> `corpus/distill_pl/`) → wartet auf Gemma-Exit → 1b Nachzügler-Sweep →
+> `corpus/results/distill_sprint.log`. BESCHLEUNIGT ~4.7x (Commit 9512565):
+> 1a Pseudo-Labeling **fp16-Teacher bs32 = 30.8 Maps/min** (war 6.5; fp16
+> gemessen 4.2x, Soft-Labels ident. bis 0.0065) → ~14 min für 621 Maps
+> (474 unlabeled VOLL-Maps dedupliziert + 147 FA-in-scope-TRAIN, MS-Protokoll
+> 768/1024/1536 ref 1024 → `corpus/distill_pl/`) → 1b Nachzügler-Sweep →
 > 2 Training `pipeline/models/wall_student_mbv3.pt` (MobileNetV3-L-U-Net 6.7M,
-> 2ch, BCE+MSE+clDice, 160k samples/16ep, Val=fa_tiles-Holdout) →
-> 3 Eval single+MS in-scope-32 (+Overlays corpus/results/student_overlays).
+> 2ch, BCE+MSE+clDice, **AMP bs128 12 workers**, 160k samples/16ep,
+> Val=fa_tiles-Holdout) → 3 Eval single+MS in-scope-32 (+Overlays
+> corpus/results/student_overlays). Gemma-Warte-Gate ENTFERNT (82GB frei).
 > Status: `tail corpus/results/distill_sprint.log`; `ls corpus/distill_pl/soft|wc -l`;
-> `pgrep -f distill_sprint`. Commit a1d9b40; Detail-Chronik notes.md OBEN.
+> `pgrep -f distill_sprint`. GOTCHA: kein zweiter Teacher daneben ladbar
+> (contiguous-Alloc OOM trotz freiem Speicher). Detail-Chronik notes.md OBEN.
 >
 > **DEPLOYMENT-KETTE SCHON GEBAUT + SMOKE-GETESTET (Commit 0bd35a2, 22.07. Mittag):**
 > `pipeline/export_student_onnx.py` (fp32 0.63s / INT8 0.41s @1024² CPU hier;
