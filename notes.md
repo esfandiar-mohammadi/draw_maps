@@ -1,3 +1,50 @@
+## 2026-07-22 (Nachmittag II) — ✅ IN-GAME-E2E in echter Foundry v13 BESTANDEN (letzter offener Schritt)
+
+**Der einzige noch nicht in echter Foundry verifizierte Schritt ist jetzt hart belegt.**
+Screenshot committet: `vendor/auto-wall-companion/test-evidence-v13-ml-detect.png`.
+
+**Setup (User: Forge ist remote → Tunnel; cloudflared gewählt):**
+- Headless-Browser-Harness aus Vorsession recovered (`scratchpad/forge/driver.py`,
+  Playwright+Chromium; `state.json` = gespeicherte Session). Account-Session
+  (`forge-vtt.com.sid`, gültig bis 28.07.) noch aktiv → **KEIN Passwort/Captcha
+  nötig**, nur Foundry-Join als Gamemaster (leeres User-Passwort). Instanz:
+  `eisenwind.forge-vtt.com`, Welt „Wall Test (Claude)", Foundry v13 Build 351.
+- `cloudflared` (arm64) heruntergeladen → ephemerer HTTPS-Quick-Tunnel auf lokalen
+  `wall_service` :8177. **HTTPS Pflicht** (Forge=HTTPS, Mixed-Content-Block sonst;
+  localhost-Ausnahme greift nicht bei remote Browser).
+
+**GOTCHA (gekostet: mehrere Runden) — Modul-ID-Kollision:** Modul-ID war
+`auto-wall-companion` = archiviertes Upstream-Paket im Foundry-Registry. Foundrys
+„Update" zog Upstream **1.2.2** (ohne ML) über den Fork; auch Install-by-URL wurde
+überschattet. **Fix:** ID → `auto-wall-companion-ml` (v2.1.0), neu gebaut (npm,
+smoke PASSED), als `awc-ml.json`+`awc-ml-2.1.0.zip` in die Forge-Asset-Library
+hochgeladen (via `FilePicker.upload("forgevtt",...)` aus der authentifizierten
+Seite), sauber per Manifest-URL installiert, alte ID im Welt-`moduleConfiguration`
+deaktiviert, neue aktiviert. Fix im Modul-Repo committet (3eeebab) — **war ein
+echter Bug, der auch den User getroffen hätte.** Nebenbei: die ML-Feature-Dateien
+(`detect-walls.ts`, `module.ts`-Tool) waren aus dem Deadline-Sprint NIE ins
+Modul-Git committet → jetzt nachgeholt.
+
+**E2E-Ablauf (alles in echter Foundry-Canvas):** serviceUrl-Setting registriert
+(default localhost:8177) → auf Tunnel-URL gesetzt → Szene „Wall Test Scene" mit
+Wild-Crypt-Map bestückt (3600x3150, ppg150, padding0, alte 5 Test-Wände gelöscht)
+→ Toolbar-Tool „Detect Walls (ML)" (unter Walls-Layer) ausgelöst → Dialog zeigt
+korrekt die Tunnel-URL → „Detect walls" geklickt. **Ergebnis: 116 native
+Wall-Dokumente** auf der Canvas, die die Crypt-Struktur (alle Raum-Perimeter,
+Korridore, Sarkophag-Kammer) sauber nachzeichnen — deckungsgleich mit dem
+Scripted-E2E-Overlay. Service-Log: `detect: 3600x3150 -> 116 walls in 0.49s`
+(Request kam durchs Tunnel vom Browser). Coord-Transform (Pixel→Canvas) korrekt
+bei padding0/grid=ppg.
+
+**Danach aufgeräumt:** serviceUrl auf localhost:8177 zurückgesetzt (Tunnel war
+ephemer), Tunnel+Service+Driver beendet. Welt bleibt mit ML-Fork aktiv, Crypt-Map
++116 Wänden als Demo. **Kein User-Passwort verwendet** (Session-State reichte).
+
+**DAMIT: gesamte Kette end-to-end in echter Foundry verifiziert.** Offene Kür nur
+noch Qualität (Recall-Hebel, DINO→0.9) — kein Verifikationsschritt mehr offen.
+
+---
+
 ## 2026-07-22 (Nachmittag) — Autonome „continue"-Checks: _last vs best + Service-E2E auf Wild-Maps
 
 Beide autonomen RESUME-Schritte (CLAUDE.md „continue" (1a)+(1b)) abgearbeitet.

@@ -1,7 +1,21 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Mittag: ✅ SYSTEM FERTIG (1 Tag vor Deadline). (nach `/clear` ZUERST lesen).**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Nachmittag: ✅ SYSTEM FERTIG + IN-GAME-E2E BESTANDEN. (nach `/clear` ZUERST lesen).**
 > Ältere ⏩-Blöcke darunter = nur Historie.
+>
+> **🆕 2026-07-22 Nachmittag: ALLE Verifikationsschritte durch — auch der letzte
+> (In-Game-E2E in echter Foundry v13).** Details: notes.md OBERSTER Eintrag.
+> Kurz: Modul (jetzt ID `auto-wall-companion-ml`, v2.1.0) in Forge-Welt „Wall Test"
+> installiert, Wild-Crypt-Map geladen, „Detect Walls (ML)" geklickt → **116 native
+> Wände in 0.49s** via HTTPS-cloudflared-Tunnel zum lokalen Student-Service, Wände
+> zeichnen die Struktur sauber nach. Beweis-Screenshot:
+> `vendor/auto-wall-companion/test-evidence-v13-ml-detect.png`. GOTCHA gefixt:
+> Modul-ID-Kollision mit archiviertem Upstream-Paket [[foundry-module-id-collision]]
+> (Foundry-„Update" zog sonst Upstream 1.2.2 ohne ML) → eindeutige ID; Fix + zuvor
+> nie committete ML-Feature-Dateien im Modul-Repo committet (3eeebab). Forge-Harness:
+> `scratchpad/forge/driver.py` (Playwright), Account-Session war noch gültig → kein
+> Passwort nötig. **Es ist KEIN Verifikationsschritt mehr offen** — „continue" heißt
+> ab jetzt nur noch Qualitäts-Kür (unten Punkt 3).
 >
 > **USER-AUFTRAG ERFÜLLT: End-to-End-System (Foundry-Modul + lokaler Companion-
 > Service + destillierter Student) steht und ist getestet.** Volle Anleitung:
