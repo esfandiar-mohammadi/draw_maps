@@ -21,11 +21,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np, cv2
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from train_seg import IMEAN, ISTD
 import graph_infer
 
+# ImageNet normalization (inlined so the deployment service needs neither torch
+# nor train_seg — CPU/ncnn deploy stays lightweight).
+IMEAN = np.array([0.485, 0.456, 0.406], np.float32)
+ISTD = np.array([0.229, 0.224, 0.225], np.float32)
+SQ = 1024   # ncnn traced input size
+
 ARGS = None
-SESS = None
+SESS = None       # onnxruntime session (onnx backend)
+NET = None        # ncnn net (ncnn backend)
 
 
 def predict_onnx(work):
@@ -38,6 +44,25 @@ def predict_onnx(work):
     return out[0][:H, :W], out[1][:H, :W]
 
 
+def predict_ncnn(work):
+    """ncnn path (RX 6600 Vulkan / CPU). The .param was traced at a fixed 1024
+    square, so pad the (longest-side<=1024) work image up to 1024x1024 and crop."""
+    import ncnn
+    H, W = work.shape[:2]
+    x = (cv2.cvtColor(work, cv2.COLOR_BGR2RGB).astype(np.float32) / 255 - IMEAN) / ISTD
+    xp = np.ascontiguousarray(
+        np.pad(x, ((0, SQ - H), (0, SQ - W), (0, 0)), mode="reflect").transpose(2, 0, 1).astype(np.float32))
+    ex = NET.create_extractor()
+    ex.input("in0", ncnn.Mat(xp))
+    _, out0 = ex.extract("out0")
+    out = 1.0 / (1.0 + np.exp(-np.array(out0)))
+    return out[0][:H, :W], out[1][:H, :W]
+
+
+def predict(work):
+    return predict_ncnn(work) if NET is not None else predict_onnx(work)
+
+
 def ms_predict(img, scales, ref_long=1024):
     H0, W0 = img.shape[:2]
     rsc = min(1.0, ref_long / max(H0, W0))
@@ -46,7 +71,7 @@ def ms_predict(img, scales, ref_long=1024):
     for s in scales:
         sc = min(1.0, s / max(H0, W0))
         work = cv2.resize(img, (round(W0 * sc), round(H0 * sc)), interpolation=cv2.INTER_AREA)
-        w, j = predict_onnx(work)
+        w, j = predict(work)
         wsum += cv2.resize(w, (RW, RH))
         jsum += cv2.resize(j, (RW, RH))
     return wsum / len(scales), jsum / len(scales), rsc
@@ -101,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/health"):
             self._send(200, {"status": "ok", "model": os.path.basename(ARGS.model),
-                             "scales": ARGS.scales})
+                             "backend": ARGS.backend, "scales": ARGS.scales})
         else:
             self._send(404, {"error": "unknown endpoint"})
 
@@ -139,9 +164,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ARGS, SESS
+    global ARGS, SESS, NET
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="pipeline/models/wall_student_mbv3.onnx")
+    ap.add_argument("--model", default="pipeline/models/wall_student_mbv3.onnx",
+                    help="onnx backend: .onnx file. ncnn backend: the .param file.")
+    ap.add_argument("--backend", choices=["onnx", "ncnn"], default="onnx",
+                    help="onnx = CPU via onnxruntime (default). ncnn = ncnn "
+                         "(add --vulkan for the RX 6600 / RADV GPU path).")
+    ap.add_argument("--vulkan", action="store_true",
+                    help="ncnn backend only: run on GPU via Vulkan (RX 6600/RADV, ROCm-free).")
     ap.add_argument("--port", type=int, default=8177)
     ap.add_argument("--host", default="127.0.0.1")
     # single-scale 1024 is the default: on the distilled student it matches
@@ -149,11 +180,22 @@ def main():
     ap.add_argument("--scales", default="1024")
     ap.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 4) - 2))
     ARGS = ap.parse_args()
-    import onnxruntime as ort
-    so = ort.SessionOptions(); so.intra_op_num_threads = ARGS.threads
-    SESS = ort.InferenceSession(ARGS.model, so, providers=["CPUExecutionProvider"])
-    print(f"wall service on http://{ARGS.host}:{ARGS.port}  model={ARGS.model} "
-          f"scales={ARGS.scales} threads={ARGS.threads}", flush=True)
+    if ARGS.backend == "ncnn":
+        import ncnn
+        NET = ncnn.Net()
+        NET.opt.use_vulkan_compute = ARGS.vulkan
+        NET.opt.num_threads = ARGS.threads
+        NET.load_param(ARGS.model)
+        NET.load_model(ARGS.model.replace(".param", ".bin"))
+        dev = "Vulkan-GPU" if ARGS.vulkan else f"CPU({ARGS.threads}t)"
+        print(f"wall service on http://{ARGS.host}:{ARGS.port}  backend=ncnn/{dev} "
+              f"model={ARGS.model} scales={ARGS.scales}", flush=True)
+    else:
+        import onnxruntime as ort
+        so = ort.SessionOptions(); so.intra_op_num_threads = ARGS.threads
+        SESS = ort.InferenceSession(ARGS.model, so, providers=["CPUExecutionProvider"])
+        print(f"wall service on http://{ARGS.host}:{ARGS.port}  backend=onnx/CPU "
+              f"model={ARGS.model} scales={ARGS.scales} threads={ARGS.threads}", flush=True)
     ThreadingHTTPServer((ARGS.host, ARGS.port), Handler).serve_forever()
 
 

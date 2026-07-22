@@ -36,9 +36,19 @@ ROCm-unsupported anyway; see DISTILL_PLAN.md §2):
 # POST http://localhost:8177/detect   body = image bytes -> {walls:[[x0,y0,x1,y1],...]}
 ```
 
-Optional faster GPU path (ROCm-free): convert the ONNX to ncnn and run on the
-RX 6600 via Vulkan/RADV — sub-second — but the CPU path already meets the
-latency budget, so this is a later optimization, not required.
+Optional faster GPU path (ROCm-free): the ONNX is also shipped as ncnn
+(`wall_student_mbv3.ncnn.param`/`.bin`, fp16) and the service has an ncnn backend
+for the RX 6600 via Vulkan/RADV:
+
+```bash
+.venv/bin/python pipeline/wall_service.py --backend ncnn --vulkan \
+    --model pipeline/models/wall_student_mbv3.ncnn.param --port 8177
+```
+
+Quality is verified identical (ncnn graph-F1 0.722 vs ONNX 0.721; wall-mask IoU
+0.976). Vulkan latency must be measured on the target (dev box has no Vulkan
+GPU). The CPU path already meets the budget, so this is opt-in. Full steps +
+conversion (pnnx) in INSTALL.md §C.6; standalone eval `pipeline/ncnn_eval.py`.
 
 ## 2. Install the Foundry module
 

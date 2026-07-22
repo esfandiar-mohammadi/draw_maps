@@ -54,6 +54,7 @@ def predict(work, ckpt, encoder):
         out = onnx_sess(ckpt).run(None, {"image": x.astype(np.float32)})[0][0]
         out = 1.0 / (1.0 + np.exp(-out))
         return out[0][:H, :W], out[1][:H, :W]
+    # ncnn (.param) deployment path lives in the dedicated pipeline/ncnn_eval.py
     t = torch.from_numpy(x.transpose(2, 0, 1))[None]
     t = F.pad(t, (0, pw, 0, ph), mode="reflect").to(DEV)
     with torch.no_grad():

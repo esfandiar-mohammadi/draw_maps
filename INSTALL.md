@@ -290,6 +290,57 @@ If Foundry runs on this same machine, the default Service URL
 `http://localhost:8177` just works — no tunnel needed. Only use §B.4's tunnel if
 your Foundry is hosted elsewhere.
 
+### C.6 Optional: GPU on the RX 6600 via Vulkan (ncnn, ROCm-free)
+
+The CPU path already meets the latency budget, so this is optional. But the
+RX 6600 *can* be used without ROCm through **ncnn + Vulkan (RADV)** — the same
+Mesa driver the desktop uses, no gfx1032 workaround needed.
+
+**Quality is identical to the shipped model** — the ncnn build was verified at
+graph-F1 **0.722** (P0.796 R0.684) on the in-scope-32 set vs the ONNX student's
+0.721; the fp16 weights match to within noise (wall-mask IoU 0.976).
+
+Install the Vulkan runtime and ncnn:
+
+```bash
+sudo pacman -S vulkan-radeon vulkan-icd-loader   # RADV driver for the RX 6600
+.venv/bin/pip install ncnn
+vulkaninfo --summary | grep deviceName            # should list the RX 6600
+```
+
+The ncnn model files (`wall_student_mbv3.ncnn.param` + `.bin`, ~13 MB) ship
+alongside the ONNX, or regenerate them from the ONNX with pnnx:
+
+```bash
+.venv/bin/pip install pnnx
+.venv/bin/pnnx pipeline/models/wall_student_mbv3.onnx inputshape=[1,3,1024,1024]
+# -> wall_student_mbv3.ncnn.param / .bin  (move into pipeline/models/)
+```
+
+Run the service on the GPU:
+
+```bash
+.venv/bin/python pipeline/wall_service.py \
+    --backend ncnn --vulkan \
+    --model pipeline/models/wall_student_mbv3.ncnn.param --port 8177
+# /health -> {"status":"ok","backend":"ncnn",...}
+```
+
+Drop `--vulkan` to run ncnn on the CPU instead. Benchmark quality + latency on
+this box before switching over:
+
+```bash
+# CPU:
+.venv/bin/python pipeline/ncnn_eval.py --per_map
+# Vulkan (RX 6600):
+NCNN_VULKAN=1 .venv/bin/python pipeline/ncnn_eval.py --per_map
+```
+
+> **Note:** Vulkan latency was **not** benchmarked on the RX 6600 during
+> development (the dev box has no Vulkan GPU) — run the `NCNN_VULKAN=1` command
+> above on your machine to measure it. The quality parity (0.722) and the CPU
+> path are both verified.
+
 ---
 
 ## Troubleshooting

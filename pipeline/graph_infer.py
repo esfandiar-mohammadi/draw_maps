@@ -5,9 +5,12 @@ reduction (merge collinear edges, snap close nodes) so the graph uses few nodes.
 """
 import os, sys, json, argparse
 from collections import defaultdict
-import numpy as np, cv2, torch
-import segmentation_models_pytorch as smp
+import numpy as np, cv2
 from skimage.morphology import skeletonize
+# torch / segmentation_models_pytorch are imported lazily inside model()/predict()
+# only — build_graph and the graph utilities are torch-free, so importing this
+# module (e.g. from a torch-free ncnn inference process) stays lightweight and
+# avoids the ncnn+torch OpenMP clash on some platforms.
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vectorize_walls import trace_polylines, simplify
@@ -21,6 +24,8 @@ _m = None
 def model():
     global _m
     if _m is None:
+        import torch
+        import segmentation_models_pytorch as smp
         ckpt = os.environ.get("WALL_GRAPH_CKPT", "pipeline/models/wall_graph_unet.pt")
         m = smp.Unet("resnet34", encoder_weights=None, classes=2).to(DEV)
         m.load_state_dict(torch.load(ckpt, map_location=DEV))
@@ -38,6 +43,7 @@ def predict(work, tile=256):
             crop = work[y:y + tile, x:x + tile]; ch, cw = crop.shape[:2]
             c = cv2.resize(crop, (tile, tile))
             xx = (cv2.cvtColor(c, cv2.COLOR_BGR2RGB).astype(np.float32) / 255 - IMEAN) / ISTD
+            import torch
             with torch.no_grad():
                 out = torch.sigmoid(model()(torch.from_numpy(xx.transpose(2, 0, 1))[None].to(DEV)))[0].cpu().numpy()
             wall[y:y + ch, x:x + cw] += cv2.resize(out[0], (tile, tile))[:ch, :cw]
