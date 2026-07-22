@@ -1,3 +1,38 @@
+## 2026-07-22 (Nachmittag) — Autonome „continue"-Checks: _last vs best + Service-E2E auf Wild-Maps
+
+Beide autonomen RESUME-Schritte (CLAUDE.md „continue" (1a)+(1b)) abgearbeitet.
+
+**(1a) `_last.pt` (Ep16) vs best-Ckpt (Ep5) auf graph-F1, single-scale 1024, in-scope-32:**
+`_last` MEAN P=0.806 R=0.680 **F1=0.725** vs shipped best 0.721 (single). Nur +0.004
+→ innerhalb Rauschen, NICHT „deutlich besser" → **Entscheidung: shipped ONNX
+(`wall_student_mbv3.onnx` aus best-Ckpt) bleibt Default, kein Re-Export.** (Mask-val-Dice
+peakte Ep5=0.599, Ep16=0.569; graph-F1 ist zwischen Ep5/Ep16 praktisch flach — bestätigt,
+dass die frühe Ckpt-Wahl korrekt war.) Log: `corpus/results/eval_student_last_1024.log`.
+
+**(1b) Service-E2E OHNE Foundry, hart belegt.** Neues Tool `pipeline/service_e2e.py`:
+lädt Wild-`.dd2vtt` (eingebettetes Battlemap + GT-Wände, nie im Training), extrahiert
+das rohe Bild, POSTet es an den laufenden `wall_service` (:8177, /detect, single-scale
+1024), rendert Overlay GRÜN=GT / ROT=Service-Prediction. Health-Check OK
+(`{"status":"ok","model":"wall_student_mbv3.onnx","scales":"1024"}`). 3 Maps, 3 völlig
+verschiedene Stile, je ~0.68–0.75s:
+- `bm5501f_crypt` (photoreal dd2vtt, 3600x3150): GT=68 → PRED=115. Rot folgt Grün
+  praktisch überall (alle Raum-Perimeter, Korridore, runde Sarkophag-Kammer); wenige
+  Streuer im dunklen Rand. **Klares Success.**
+- `test` (Cartoon/Scribble-Dungeon, 1280x1280): GT=197 → PRED=278. Organische Höhlen-
+  Kontur + Innenwände + Truhen sauber getroffen; **Grid-Linien NICHT als Wände
+  halluziniert** (HEATs Schwäche — Student clean).
+- `tof5e_hilltop_ruins` (photoreal Outdoor-Ruine, 3750x3750, GT=8 → PRED=48):
+  Out-of-scope-Stil; Student traced die Ruinen-Kontur + markiert paar Felsblöcke,
+  halluziniert aber KEINE Wände im offenen Gras. Akzeptables Verhalten für Nicht-Ziel-Map.
+Overlays: `corpus/results/service_e2e_{bm5501f_crypt,test,tof5e_hilltop_ruins}.png` (angesehen, H2).
+
+**Fazit:** Deployment-Pfad (ONNX-Student → wall_service → editierbare Wand-Segmente)
+end-to-end hart verifiziert auf ungesehenen Maps über 3 Stile. Einziger noch nicht in
+echter Foundry verifizierter Schritt bleibt der In-Game-E2E (RESUME-Schritt 2, braucht
+Forge+User).
+
+---
+
 ## 2026-07-22 (Mittag) — ✅ SYSTEM FERTIG: Student 0.723 (Gate bestanden), ONNX+Service+Modul E2E
 
 **Sprint durchgelaufen (~50 min gesamt dank fp16).** Ergebnisse in-scope-32 graph-F1:
