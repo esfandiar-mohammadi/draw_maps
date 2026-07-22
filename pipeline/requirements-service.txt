@@ -1,0 +1,7 @@
+# Runtime dependencies for the wall-detection companion service
+# (pipeline/wall_service.py). CPU-only — no CUDA/ROCm needed.
+# Tested versions (2026-07-22, Python 3.12):
+onnxruntime>=1.20,<2      # tested 1.27.0
+opencv-python-headless>=4.9  # tested 5.0.0 (headless = no GUI/X11 deps)
+numpy>=2.0,<3             # tested 2.2.6
+# The HTTP server itself uses only the Python stdlib (http.server) — no Flask.
