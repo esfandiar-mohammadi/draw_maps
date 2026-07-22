@@ -1,3 +1,29 @@
+## 2026-07-22 — Distillations-Recherche komplett; DISTILL_PLAN.md geschrieben (User waehlt)
+
+**User-Richtung:** Fokus auf DINO (HEAT-Arc zu). Neuer Task: Modell auf User-Hardware
+distillieren — **Ryzen 3600 + RX 6600 8GB (gfx1032!) + 16GB, Arch, 20% Reserve**,
+Qualitaetsziel „aehnlich wie DINO-Pipeline" (0.728). User erinnerte ein Paper
+„Entscheidungsbaum mit Conv-Filtern als Splits" → **IDENTIFIZIERT: Laptev & Buhmann,
+GCPR 2014 Best Paper** (kein Code, kein Skalen-Praezedenzfall → Forschungs-Bet).
+
+4 Research-Agents (Baeume / CNN-Student+KD+Deployment / Exoten / AMD-Verifikation),
+alles in **`DISTILL_PLAN.md`**. Kernfakten: (a) Teacher direkt auf RX 6600 FRAGIL
+(gfx1032 unsupported, HSA-Override ab ROCm 6.4.3 SIGSEGV-kaputt, ORT-ROCm-EP
+entfernt, 8GB grenzwertig) → Distillation ist der robuste Weg. (b) Beste Studenten
+lokal GEMESSEN: MobileNetV3-L-U-Net 6.7M = 0.63s @1024² nativ CPU (onnx+onnxruntime
+jetzt im .venv). (c) KD-Rezept mit staerkstem Praezedenzfall: Output-Space-Distillation
+mit Teacher-Pseudo-Labels auf den 176k unlabeled Crops (Depth Anything V2: Pseudo-
+Labels SCHLAGEN manuelle; MobileSAM 110× „near-parity"). (d) Foundry: keine
+COOP/COEP-Header → kein WASM-Threading; INT8 bringt in WASM keinen Compute-Gewinn;
+WebGPU nur opportunistisch. (e) ROCm-freie GPU-Pfade fuer Studenten: ncnn+Vulkan
+(RADV) nativ, WebGPU im Browser. Vorschlaege ranked: P1 CNN-Student (4-6 Tage bis
+Go/No-Go), P2 Structured-Forest/GBT-Probe (User-Baum-Idee seriös, 1-2 Tage), P3
+Guided-Filter+Kaskade-Multiplikator, P0 Teacher-direkt NICHT empfohlen.
+Offen: User-Wahl P1/P2-Start, Browser-vs-Companion-Prio, Go/No-Go-Schwelle.
+
+Zeitschaetzung DINO-Verbesserungsplan (User-Frage): Ph0 ~0.5d, Ph1 ~2-3d,
+Ph2 ~1-1.5 Wo, Ph3 ~2-3 Wo → ~4-6 Wochen seriell bis 0.9-Versuch.
+
 ## 2026-07-22 (04:30) — Wild-Showcase Teil 2: DINO-MS auf denselben 12 unlabeled Maps
 
 `pipeline/dino_infer_showcase.py` (MS-Protokoll wie Benchmark: scales 768/1024/1536,

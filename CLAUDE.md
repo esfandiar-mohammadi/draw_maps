@@ -1,9 +1,34 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 (~03:15; nach `/clear` ZUERST lesen).**
-> Der `⏩⏩⏩`-Block darunter (2026-07-21 Abend, HEAT-Arc) ist ÜBERHOLT — nur Historie.
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Vormittag (nach `/clear` ZUERST lesen).**
+> Ältere ⏩-Blöcke darunter = nur Historie.
 >
-> **STAND: HEAT-in-scope-Arc ABGESCHLOSSEN (Plateau), DINO-PLAN WARTET AUF USER.**
+> **STAND: User-Fokus = DINO. Zwei offene Stränge, BEIDE warten auf User-Wahl:**
+> **(A) DISTILLATION (heutiger Task, User-Prio!):** Recherche KOMPLETT, Vorschläge
+> in **`DISTILL_PLAN.md`** (P1 CNN-Student = Empfehlung, 4–6 Tage; P2 Structured-
+> Forest-Probe = User-Baum-Idee [Laptev&Buhmann GCPR'14 identifiziert]; P3 Guided-
+> Filter+Kaskade; P0 Teacher-direkt-auf-RX6600 NICHT empfohlen — gfx1032/ROCm
+> fragil). Ziel-Hardware: Ryzen 3600 + RX 6600 8GB + 16GB, Arch, **20% Reserve**
+> (Memory: user-target-hardware). Qualitätsziel „ähnlich DINO" = 0.728 in-scope.
+> **▶️ BEI „continue": DISTILL_PLAN.md §3+§5 dem User kompakt präsentieren,
+> P1-Start empfehlen (Pipeline ist Teacher-agnostisch, kein Regret); auf Wahl
+> warten bzw. bei Freigabe P1 Schritt 1 = Pseudo-Label-Job (DINO-MS auf 176k
+> Crops, setsid auf GB10) aufsetzen.** onnx+onnxruntime sind schon im .venv
+> (Research-Agent hat Studenten-Latenzen hier gemessen: MobileNetV3-L-U-Net 6.7M
+> = 0.63s @1024² CPU).
+> **(B) DINO-VERBESSERUNG:** `DINO_IMPROVEMENT_PLAN.md` (0.728→0.9, Phasen mit
+> Gates; Zeitschätzung: Ph1 2–3d, Ph2 ~1–1.5Wo, Ph3 ~2–3Wo, gesamt 4–6 Wo).
+> Wartet auf User-Go; §5 = User-Entscheidungen (DINOv3-Lizenz, Civitai-Lizenzen).
+> Läuft NICHTS im Hintergrund (HEAT-Arc sauber beendet, GPU frei bis auf Gemma).
+>
+> **Wild-Showcases (visueller Beleg, committet):** HEAT-ep80 vs DINO-MS auf 12
+> unlabeled Maps: `corpus/results/{heat,dino}_wild_showcase/collage_*.png` —
+> DINO präzise aber Recall-schwach, HEAT recallt mehr + halluziniert Grids.
+> Neue Tools: `pipeline/{heat,dino}_infer_showcase.py` (Inferenz ohne GT).
+>
+> ---
+>
+> **HISTORIE: HEAT-in-scope-Arc ABGESCHLOSSEN (2026-07-22 ~03:15, Plateau).**
 >
 > **HEAT-Ergebnis (2026-07-22): schlägt DINO NICHT.** Fine-tune konvergierte bei
 > in-scope-32 graph-F1 **0.703** (ep80; Kurve ep50–80: 0.682/0.702/0.696/0.703,
