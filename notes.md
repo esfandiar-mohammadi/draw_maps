@@ -1,3 +1,27 @@
+## 2026-07-22 (04:00) — Wild-Map-Showcase HEAT-ep80 (unlabeled, nie supervised gesehen)
+
+User-Wunsch: 2 Kollagen mit HEAT-Wand-Annotationen auf Maps ohne Label, nicht im
+Training. Neues Tool `pipeline/heat_infer_showcase.py` (Inferenz ohne GT, long-edge
+1024, drop_border_edges, ROT=pred). Modell: `checkpoint_ep80.pth` (bester in-scope-
+HEAT 0.703). Maps: 6 Reddit (`corpus/maps`) + 6 Drakkenheim — beide Pools waren
+label-frei im BYOL-SSL-Pool (Backbone-Init), aber NIE im supervised Training.
+Kollagen: `corpus/results/heat_wild_showcase/collage_{reddit,drakkenheim}_heat_ep80.png`.
+
+Visueller Befund (H2): STARK auf Top-Down-Gebaeuden (map02 Wuestenstadt, map03
+Jahrmarkt-Gebaeude, King's Gate F2 exzellent, Reed Manor gut, Kleinburg-Raeume gut).
+SCHWACH/erwartbar: (a) GRID-LINIEN-HALLUZINATION auf leerem/dunklem Hintergrund
+(Black Ivory Inn schwarzer Rand, Brackish Pool, map08 Wasser) — HEAT liest das
+gezeichnete Raster als Wand; drop_border_edges greift nur am Bildrand, nicht innen.
+(b) Out-of-scope-Typen wie erwartet kaputt: Outdoor-Wald (map01, Terrain-Kanten),
+isometrische Illustration (map04, fast nichts — korrekt zurueckhaltend), Stadt-
+Uebersicht zu weit rausgezoomt (map05). Groesster genereller Fehlermodus im Wild-
+Einsatz = Grid-Halluzination → passt zu Plan-Hebel drop_border/Edge-Verification.
+
+Frage User: Distractor-Consistency-Training (Tiles einfuegen, Prediction darf sich
+nicht aendern) schon gemacht? NEIN — nur BYOL/JEPA (Representation-SSL) und
+supervised Copy-Paste (0.541, verworfen). Als Addendum in DINO_IMPROVEMENT_PLAN.md
+aufgenommen (Phase 2 aux loss / Teil von UniMatch-Konsistenz 3.2).
+
 ## 2026-07-22 (03:15) — HEAT-in-scope-Arc ABGESCHLOSSEN: Plateau bei 0.703, Training gestoppt
 
 **Ergebnis: HEAT-in-scope-FT schlägt DINO NICHT.** Snapshot-Kurve (in-scope-32,

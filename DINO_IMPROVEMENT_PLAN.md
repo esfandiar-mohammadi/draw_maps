@@ -73,6 +73,21 @@ Gate: ≥ ~0.80 before committing to Phase-3 spend.
 | 3.4 | **CAGE as HEAT successor** for the routing partner: edge-native output (open segments, no closed-room prior), density-map input ≈ our mask, +9.2/+11.0 corner/angle F1 over HEAT on S3D | M | license SPDX NOASSERTION (verify); deform-attn CUDA on aarch64 (we've patched this class); 211M params under Gemma squeeze | https://github.com/ee-Liu/CAGE, https://arxiv.org/abs/2509.15459 |
 | 3.5 | **ScaleLSD zero-shot probe** (hours, MIT, domain-agnostic self-supervised LSD) + optional LINEA-S fine-tune `[RGB, wall_prob]` for the buildings route (12-epoch recipe, Apache-2.0) | S / S–M | wireframe models are straight-line-only → buildings subset; caves stay on DINO+skeleton | https://github.com/ant-research/scalelsd, https://github.com/SebastianJanampa/LINEA |
 
+### Addendum (User-Idee, 2026-07-22) — Distractor-Consistency-Training
+
+Add tiles/distractor objects to an image and **penalize any change in the wall
+prediction** (consistency loss between pred(img) and pred(img+distractors),
+stop-grad on the clean branch). Status: NOT done yet in this form — prior related
+work was (a) BYOL/JEPA = representation-level SSL (no prediction consistency),
+(b) supervised copy-paste (`wall_dino_fa_cp.pt`, F1 0.541 < 0.553 baseline,
+discarded) = same pixels trained with unchanged labels, but no explicit
+invariance term. The consistency version is stronger: it works WITHOUT labels
+(usable on the 176k unlabeled pool), directly optimizes the invariance we want
+(furniture/texture ≠ wall), and is the same mechanism family as UniMatch-V2's
+weak-to-strong consistency (3.2) — can be implemented standalone as an auxiliary
+loss (S–M effort) or arrive as part of 3.2. Slot: Phase 2 (as aux loss on
+labeled+unlabeled) or merged into Phase 3.2.
+
 ### Cross-cutting — per-map routing DINO×HEAT
 Hold until HEAT-in-scope converges (training running). Today's oracle is only 0.759;
 a learned gate is worth building only if the converged oracle reaches ~0.85. The
