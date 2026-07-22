@@ -10,14 +10,19 @@ Foundry scene ──"Detect Walls (ML)" button──▶ local companion service 
 
 ## Quality (in-scope-32 graph-F1, same protocol as the teacher)
 
+Numbers below use the **frame-aware `drop_border_edges`** vectorizer (default
+since the Phase-0 diagnostic showed the old blanket border filter discarded real
+perimeter walls, costing ~0.02 student / ~0.04 teacher graph-F1 for free). The
+old-blanket-filter numbers are in parentheses.
+
 | model | params | graph-F1 | CPU latency @1024² |
 |---|---|---|---|
-| DINOv2 ViT-g teacher (multi-scale) | 1.1 B | 0.728 | ~seconds, GPU-class |
-| **distilled student (fp32 ONNX, single-scale)** | **6.7 M** | **0.721** | **0.65 s** (this host) |
-| student multi-scale | 6.7 M | 0.723 | ~2 s |
+| DINOv2 ViT-g teacher (multi-scale) | 1.1 B | **0.768** (was 0.728) | ~seconds, GPU-class |
+| **distilled student (fp32 ONNX, single-scale)** | **6.7 M** | **0.741** (was 0.721) | **0.65 s** (this host) |
+| student ncnn fp16 (single-scale) | 6.7 M | 0.742 | ~0.6 s CPU / Vulkan on RX 6600 |
 | student INT8 ONNX | 6.7 M | 0.380 ✗ | 0.32 s |
 
-The distilled student is **0.007 below the teacher at ~180× fewer parameters**,
+The distilled student is **~0.027 below the teacher at ~180× fewer parameters**,
 and single-scale matches multi-scale — so deployment uses single-scale 1024.
 **INT8 is NOT usable** (per-channel QDQ still collapses MobileNetV3's
 hardswish/hardsigmoid activations, 0.72→0.38) — ship fp32. On the target
