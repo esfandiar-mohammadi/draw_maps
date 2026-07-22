@@ -19,14 +19,22 @@
 > Status: `tail corpus/results/distill_sprint.log`; `ls corpus/distill_pl/soft|wc -l`;
 > `pgrep -f distill_sprint`. Commit a1d9b40; Detail-Chronik notes.md OBEN.
 >
-> **▶️ BEI „continue": (1) Sprint-Log prüfen (Stufe? gescheitert→Retry-Ursache im
-> Log; Training fertig→Stage-3-Zahlen mit 0.72-Gate vergleichen, Overlays ANSEHEN).
-> (2) Weiter am Deployment bauen (Reihenfolge): `pipeline/export_student_onnx.py`
-> (+INT8 per-channel QDQ), `pipeline/wall_service.py` (Bild→Student→build_graph→
-> Wall-JSON in BILD-Pixeln; CORS *; onnxruntime-CPU), Modul-Button „Detect walls
-> (ML)" in vendor/auto-wall-companion (importiert `{c:[x0,y0,x1,y1]}`-Arrays via
-> processWallImport; Padding/Scale-Transform H7 im Modul + Unit-Test; http://localhost
-> von https aus ok, secure-context-Ausnahme), E2E in Test-Welt „wall-test".**
+> **DEPLOYMENT-KETTE SCHON GEBAUT + SMOKE-GETESTET (Commit 0bd35a2, 22.07. Mittag):**
+> `pipeline/export_student_onnx.py` (fp32 0.63s / INT8 0.41s @1024² CPU hier;
+> INT8-QUALITÄT UNGEPRÜFT — morgen per graph-F1 gegen fp32 entscheiden),
+> `pipeline/wall_service.py` (stdlib-HTTP :8177, Bild→ONNX-Student→build_graph→
+> Wall-JSON in BILD-PixELN, CORS *, ?format=uvtt; E2E getestet mit Smoke-Student),
+> Modul-Button „Detect Walls (ML)" in vendor/auto-wall-companion (DialogV2
+> Detect/Undo/Cancel, H7-Transform `imageToCanvasSegment` MIT Unit-Fixtures,
+> npm build + `node test/smoke.mjs` GRÜN; vendor/ ist gitignored → Modul-Quellen
+> force-added).
+> **▶️ BEI „continue": (1) Sprint-Log prüfen (gescheitert→Retry-Ursache; Training
+> fertig→Stage-3-Zahlen vs 0.72-Gate, Overlays ANSEHEN corpus/results/
+> student_overlays). (2) DANACH: ONNX-Export vom echten Studenten (--int8),
+> INT8-vs-fp32 graph-F1, Service mit echtem Modell + Wild-Map visuell, Modul-Zip
+> bauen (cd vendor/auto-wall-companion && npm run build && cd dist && zip),
+> E2E in Test-Welt „wall-test" auf Forge, Latenz-Doku für Ziel-HW (Ryzen 3600
+> ~2× langsamer als GB10-CPU schätzen, ncnn+Vulkan optional).**
 > Student-Eval: `pipeline/graph_eval_student.py --per_map` (default = in-scope-32,
 > MEAN direkt; STUDENT_EVAL_DEV=cpu möglich). GOTCHA: WebP>64MB braucht env
 > `OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE` (im Launcher gesetzt).
