@@ -1,3 +1,32 @@
+## 2026-07-23 (nachts) — KAPAZITÄT IST DIE DECKE: ConvNeXt-Tiny-Student 0.765 (+0.024)
+
+User-Frage: „Zielsystem bekannt — wie viel Modell wagen? Smarteres Modell (Residual,
+Dropout, LayerNorm, Attention)?" → **Budget-Analyse + entscheidendes Experiment.**
+- **Budget:** One-Shot-Import-Tool → Latenz-Budget großzügig; RX 6600 hat 6.4GB
+  nutzbar. Wir können ~5-10× Params auf CPU wagen, viel mehr auf Vulkan. Bindende
+  Grenze = Deployment-Sauberkeit + Trainingskosten, NICHT die Hardware.
+- **Hebel-Ranking (ehrlich):** Encoder-Kapazität = DER Hebel (Student underfittet,
+  val-Dice-Plateau ~0.6). Attention nur sinnvoll via ViT-Encoder (nicht angeflanscht).
+  Residual/Dropout/LayerNorm einzeln = marginal bzw. falsche Richtung (Dropout schadet
+  bei Underfitting). ABER: ConvNeXts *Paket* (LayerNorm+7×7-depthwise+GELU) hilft real.
+- **Experiment (train_student `--encoder`, bestehende Phase1-Pseudolabels):**
+  | Student | Params | best graph-F1 |
+  | MobileNetV3-L (shipped) | 6.7M | 0.741 |
+  | EfficientNet-B4 | 20M | 0.740 |
+  | **ConvNeXt-Tiny** | 32M | **0.765 @thr0.5** (P0.815 R0.736) |
+  → **Kapazität IST die Decke** (widerlegt „nur bigger teacher"-Pessimismus von (5)).
+  ConvNeXt-Tiny +0.024 über shipped, nur 0.021 unter Teacher (0.786). B4 ≈ shipped →
+  es ist ARCHITEKTUR, nicht rohe Params.
+- **Deployment-ready:** ONNX exportiert (Parität 4e-5, 122MB), 0.98s CPU@1024 dev
+  (~2-2.5s Ryzen 3600, sub-1s RX6600 Vulkan). ONNX-graph-F1 = 0.765 (Parität bestätigt).
+  Artefakte `wall_student_{tu_convnext_tiny.pt,convnext_tiny.onnx}` (git-ignored).
+- **OFFEN (User-Entscheidung): ConvNeXt-Tiny als neuen Default promoten?** Tradeoff:
+  +0.024 F1 für ~2× Latenz + 5× Modellgröße (26→122MB); braucht wall_thr=0.5 + ncnn-
+  Re-Export + Re-Verify. shipped MobileNetV3 (0.741, E2E-verifiziert) bleibt bis
+  Entscheidung Default. ConvNeXt-Small (54M) ungetestet = evtl. mehr. [[distill-student-capacity-ceiling]]
+
+---
+
 ## 2026-07-23 — Qualitäts-Kür: INSTALL.md geschrieben; Student-Recall-Hebel WIDERLEGT
 
 **User-Priorität (nach /clear, Antwort auf AskUserQuestion):** (1) Installations-
