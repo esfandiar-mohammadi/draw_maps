@@ -1,6 +1,50 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-22 Nachmittag: ✅ SYSTEM FERTIG + IN-GAME-E2E BESTANDEN. (nach `/clear` ZUERST lesen).**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-23 nachts: ConvNeXt-Tiny-Student wird
+> PROMOTED (User-Freigabe da). Nach `/clear` ZUERST diesen Block + notes.md TOP.**
+>
+> **KONTEXT der Session (2026-07-23): 4 User-Prioritäten ABGEARBEITET** (INSTALL.md;
+> Student-Recall; Speed RX 6600 ncnn/Vulkan; Teacher Phase 0+1). Dann User-Frage
+> „wie viel Modell wagen / smarteres Modell?" → **Kapazität IST die Decke bewiesen:
+> ConvNeXt-Tiny-Student (32M) = graph-F1 0.765 @wall_thr0.5 (+0.024 über shipped
+> MobileNetV3 0.741, nur 0.021 unter Teacher 0.786).** EfficientNet-B4 (20M)=0.740
+> (→ Architektur, nicht Params). Details: notes.md OBERSTER Eintrag + Memories
+> [[distill-student-capacity-ceiling]] [[vectorizer-border-filter-recall]].
+>
+> **▶️ AKTIVE AUFGABE bei „continue": ConvNeXt-Tiny als Deployment-Default fertig
+> promoten. User hat „Promote ConvNeXt-Tiny" gewählt. Artefakte liegen (git-ignored):**
+> `pipeline/models/wall_student_convnext_tiny.onnx` (122MB, Parität 4e-5, 0.765
+> verifiziert), `wall_student_tu_convnext_tiny.pt`, `wall_student_convnext_tiny.ncnn.{param,bin}`
+> (frisch via pnnx, NOCH NICHT paritäts-verifiziert). Trainiert:
+> `train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1`.
+> **RESTSCHRITTE (in Reihenfolge):**
+> 1. **ncnn-Parität prüfen:** `.venv/bin/python pipeline/ncnn_eval.py --param
+>    pipeline/models/wall_student_convnext_tiny.ncnn.param --wall_thr 0.5` → erwarte ~0.765.
+>    (ncnn_eval hat onnxruntime-first-Stabilisator + 2-Phasen; pad-to-1024²-Quadrat
+>    gilt auch für ConvNeXt, da bei 1024² getract.)
+> 2. **`wall_service.py`:** `--wall_thr`-Flag ergänzen (default 0.5), in `detect()`
+>    an `build_graph(..., wall_thr=ARGS.wall_thr)` durchreichen; Default `--model`
+>    auf ConvNeXt-onnx umstellen. MobileNetV3 (0.741, 26MB, thr0.4) als Fallback
+>    dokumentieren. (build_graph-Default bei 0.4 LASSEN — nur Service auf 0.5.)
+> 3. **`tools/run_wall_service.sh`:** Modellpfad → ConvNeXt-onnx.
+> 4. **E2E-Reverify:** Service starten (onnx UND ncnn-Backend), 1 echtes Bild
+>    POSTen (`/tmp/claude-1000/testmap.png` bzw. aus dd2vtt), Wände+Latenz prüfen.
+>    In-Game-Forge-E2E optional (Service-Pfad ist architektur-agnostisch → scripted reicht).
+> 5. **Docs:** DEPLOYMENT.md + INSTALL.md: neuer Default ConvNeXt-Tiny 0.765,
+>    wall_thr=0.5, Latenz ~2-2.5s Ryzen / sub-1s RX6600-Vulkan, onnx 122MB/ncnn 64MB;
+>    MobileNetV3-Fallback-Zeile behalten. notes.md + commit.
+> **NICHT nötig:** Teacher weiter pushen (Phase 2/3) — transferiert kaum zum Student
+> (belegt: Teacher +0.018 → Student +0.003). Optional-Kür: ConvNeXt-Small (54M) /
+> DINOv2-ViT-S testen (User hat vorerst Tiny gewählt).
+>
+> **Modell-Bestwerte aktuell (in-scope-32 graph-F1, frame-aware Vektorisierer):**
+> Teacher DINO 0.786 (Phase1, @thr0.7) · **Student ConvNeXt-Tiny 0.765 (@thr0.5, NEU)**
+> · Student MobileNetV3 shipped 0.741 (@thr0.4). GRATIS-Gewinn dieser Session:
+> frame-aware `drop_border_edges` (Vektorisierer, kein Retrain) hob ALLES ~+0.02-0.04.
+>
+> ---
+>
+> ⏩⏩⏩ **RESUME (Stand 2026-07-22 Nachmittag, ÜBERHOLT — System fertig + E2E; Historie).**
 > Ältere ⏩-Blöcke darunter = nur Historie.
 >
 > **🆕 2026-07-22 Nachmittag: ALLE Verifikationsschritte durch — auch der letzte
