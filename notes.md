@@ -83,11 +83,24 @@ ROCm-frei (gfx1032 unsupported) via ncnn→Vulkan/RADV.
 - **DEPLOYMENT.md aktualisiert** (Student 0.741, Teacher 0.768). `graph_eval_student`
   hat jetzt `--border_margin`.
 
-**OFFEN (Phase 1+ DINO_IMPROVEMENT_PLAN, jetzt NIEDRIGERE Prio):** Mask-Recall-Hebel
-(Tversky, Skeleton-Recall-Loss, Auflösung 518) heben die MASKE (0.787) → würden über
-den nun recall-treuen Graph zusätzlich greifen. Phase 3 (DINOv3, ControlNet) braucht
-User-Entscheidungen (Plan §5). **Budget-Gate: User fragen ob Phase 1 lohnt** — der
-billige Vektorisierer-Gewinn ist gebucht.
+**(5) PHASE 1 RETRAIN (User wählte "Phase 1 mask recall") — TEACHER 0.768→0.786
+(+0.018) (committet 5114f05 Code; Ckpt `wall_dino_fa_p1.pt` git-ignored).**
+Warm-start Champion + `--tversky_beta 0.7` + `--skeleton_recall` (neue
+`soft_skeleton_recall`, MIC-DKFZ ECCV24; ersetzt clDice). Mask-val-Dice 0.632→0.659.
+- **Erst schien Phase 1 zu verlieren** (default thr0.4: graph 0.761 < 0.768) — die
+  Recall-Losses machten die Maske "fetter" (mask-recall 0.787→0.835), P fiel ~1:1.
+- **wall_thr-Sweep drehte das Bild** (H3, nicht auf einem Betriebspunkt schließen):
+  Phase1 hat die BESSERE Frontier. Fairer Vergleich (beide bester thr):
+  Champion@thr0.5 = 0.776 vs **Phase1@thr0.7 = 0.786**. Phase1 dominiert bei jedem
+  Recall-Level. Nebenbefund: **thr0.4 war für BEIDE suboptimal** (Champion 0.768→0.776
+  @thr0.5). Aktueller Student: thr0.4 bleibt optimal (0.741; Frontier flacher).
+- Teacher-Verlauf: 0.728 (orig) → 0.768 (frame-aware) → **0.786 (Phase1 @thr0.7)**.
+- **LÄUFT: Re-Distillation** vom Phase1-Teacher (`corpus/distill_pl_p1`,
+  `wall_student_mbv3_p1.pt`) um den Gewinn in den DEPLOYTEN Student zu bringen
+  (shipped Student bleibt bis verifiziert). Ergebnis folgt.
+
+**OFFEN (Phase 2+, NIEDRIGERE Prio, Budget-Gate):** Auflösung 518+LoRA, OHEM/FDA.
+Phase 3 (DINOv3, ControlNet) braucht User-Entscheidungen (Plan §5).
 
 ---
 
