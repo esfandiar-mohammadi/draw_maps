@@ -7,7 +7,8 @@ PORT="${1:-8177}"
 MODEL="pipeline/models/wall_student_convnext_tiny.onnx"
 if [ ! -f "$MODEL" ]; then
   echo "Model $MODEL missing — train + export the ConvNeXt-Tiny student first:"
-  echo "  .venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1"
+  echo "  .venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1 \
+    --out pipeline/models/wall_student_tu_convnext_tiny.pt"
   echo "  .venv/bin/python pipeline/export_student_onnx.py \\"
   echo "      --ckpt pipeline/models/wall_student_tu_convnext_tiny.pt \\"
   echo "      --encoder tu-convnext_tiny --out $MODEL"

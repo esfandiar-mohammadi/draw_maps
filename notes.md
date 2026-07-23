@@ -1,3 +1,36 @@
+## 2026-07-23 (spät) — Autonomes Arch-Deploy-Script + Doku-Doublecheck (Deploy morgen)
+
+User: „Modell fertig destilliert für Zielrechner? Doku doublechecken. Dann
+vollautonomes Deploy-Script für Arch inkl. aller Libs/Deps." Alles erledigt.
+
+- **Destillation FERTIG** — ConvNeXt-Tiny ONNX läuft CPU-only auf dem Ziel (kein
+  GPU/ROCm). Nichts offen. Peak-RAM gemessen: **~750 MB** @1024² (baseline ~338 MB).
+- **Doku-Doublecheck fand echten Bug:** `train_student.py --out` defaultet auf
+  `wall_student_mbv3.pt` (KEIN Auto-Naming aus `--encoder`!). Meine Regen-Befehle
+  ließen `--out` weg → hätten die mbv3-.pt überschrieben. In DEPLOYMENT.md,
+  INSTALL.md (×2) und run_wall_service.sh `--out …tu_convnext_tiny.pt` ergänzt.
+  Zusätzlich stale Zahlen in INSTALL-Intro/Prereqs gefixt (6.7M→32M, 26MB→122MB,
+  ~1s→~2-2.5s Ryzen, RAM-Zeile auf gemessene ~750MB).
+- **NEU `tools/deploy_arch.sh`** (vollautonom, idempotent): (1) Preflight
+  (Arch/repo/python/sudo), (2) `pacman -Sy --needed` python git glib2 gcc-libs curl
+  (+ vulkan-radeon/-icd-loader bei --vulkan; gcc-libs/glib2 = opencv-headless-
+  Runtime), (3) Modell beschaffen (present / `--model-url` / `--model-src`; git-
+  ignored, NICHT auf Ziel regenerierbar mangels CUDA → klarer Fehler + scp-Hinweis),
+  (4) venv + `requirements-service.txt` + Import-Check auf DEN Wheels, (5) systemd-
+  **user**-Unit + `enable-linger` (überlebt Logout/SSH; root→system-Unit-Fallback;
+  systemctl-fehlschlag→Anleitung statt Abbruch), (6) Self-Test: /health + echter
+  Detection-POST (Corpus-Tile oder synthetisiertes Bild). Flags: --port/--host/
+  --threads(def 80% Kerne)/--vulkan/--no-service/--model-url/--model-src/--help.
+- **Verifiziert (Ubuntu-aarch64-Devbox ist NICHT Arch → pacman/systemd gestubt,
+  Rest ECHT):** onnx-Pfad 57 Wände/0.09s, --vulkan/ncnn 75/0.34s, missing-model-
+  Fehlerpfad sauber, Thread-Calc 16/20=80%. pacman-Install + systemctl --user +
+  Vulkan-GPU-Latenz sind die einzigen Teile, die NUR auf dem echten Arch-Ziel
+  final laufen (dokumentiert). `bash -n` + Struktur ok.
+- Docs: INSTALL.md §C.2 = „one command" (`bash tools/deploy_arch.sh`) + Manual-
+  equivalent behalten.
+
+---
+
 ## 2026-07-23 (nachts, später) — ConvNeXt-Tiny als Deployment-Default PROMOTED
 
 User-Freigabe „Promote ConvNeXt-Tiny" abgearbeitet — die 5 Restschritte aus dem

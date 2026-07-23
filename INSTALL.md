@@ -12,7 +12,7 @@ The system has **two parts** that you install separately:
  │  "Detect Walls (ML)"     │ ──────────────────▶ │  (Python, runs on YOUR   │
  │  button (this module)    │ ◀────────────────── │   machine, CPU-only)     │
  └─────────────────────────┘     walls JSON       └──────────────────────────┘
-        in the browser                                  6.7 M-param CNN
+        in the browser                                  32 M-param CNN
 ```
 
 - **Part A — the companion service**: a small Python HTTP server that runs the
@@ -22,8 +22,9 @@ The system has **two parts** that you install separately:
 
 You need **both**. Install the service first (Part A), then the module (Part B).
 
-> **Why local?** The model runs on your CPU in ~1 s per map. Keeping it local
-> means your maps never leave your machine, and there is no per-map API cost.
+> **Why local?** The model runs on your CPU in ~1 s per map on a modern desktop
+> (~2–2.5 s on the target Ryzen 3600). Keeping it local means your maps never
+> leave your machine, and there is no per-map API cost.
 
 ---
 
@@ -34,7 +35,7 @@ You need **both**. Install the service first (Part A), then the module (Part B).
 | **Foundry VTT** | v12, v13, or v14 (verified on v13/v14) |
 | **Python** | 3.10+ (3.12 tested) — for the companion service |
 | **OS** | Linux, macOS, or Windows. Service is pure CPU — **no GPU, no CUDA, no ROCm required** |
-| **RAM** | ~1 GB free while the service runs (model is 26 MB, peak working set < 1 GB) |
+| **RAM** | ~1 GB free while the service runs (ConvNeXt: measured peak ~750 MB at 1024²; MobileNetV3 fallback needs less) |
 | **Node.js** | 18+ — **only** if you build the module from source (Part B, method 3) |
 
 The service and the Foundry client must be able to reach each other over HTTP.
@@ -61,7 +62,8 @@ It is *not* in git (too large for the repo). Obtain it one of two ways:
    release/assets page and drop it into `pipeline/models/`, **or**
 2. **Regenerate it** from the teacher pseudo-labels (needs a CUDA GPU):
    ```bash
-   .venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1
+   .venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1 \
+    --out pipeline/models/wall_student_tu_convnext_tiny.pt
    .venv/bin/python pipeline/export_student_onnx.py \
        --ckpt pipeline/models/wall_student_tu_convnext_tiny.pt \
        --encoder tu-convnext_tiny \
@@ -236,10 +238,33 @@ MobileNetV3 fallback is ~1.3 s). A ROCm-free *GPU* path (ncnn + Vulkan/RADV)
 exists but is **MobileNetV3-only** (see §C.6) — the ConvNeXt CPU path already
 meets the budget.
 
-### C.2 Install (Arch)
+### C.2 Install (Arch) — one command
+
+`tools/deploy_arch.sh` does the whole target-side setup autonomously: pacman
+packages, the venv + CPU runtime deps, the systemd user service, and a self-test
+(health + a real detection). It is idempotent — safe to re-run.
 
 ```bash
-sudo pacman -S python git            # base tools
+git clone <this-repo-url> ~/draw_maps
+cd ~/draw_maps
+# put the model in place first (it is git-ignored, 122 MB — see §A.1):
+scp devbox:~/draw_maps/pipeline/models/wall_student_convnext_tiny.onnx pipeline/models/
+#   ...or let the script fetch/copy it:  --model-url URL   |   --model-src /path/to.onnx
+bash tools/deploy_arch.sh
+```
+
+Useful flags: `--port N`, `--host ADDR`, `--threads N` (default ~80 % of cores),
+`--vulkan` (MobileNetV3 + ncnn/Vulkan GPU path, §C.6), `--no-service` (skip the
+systemd unit), `--model-url` / `--model-src` (obtain the model). `--help` lists
+all. On success it prints the **Service URL** to paste into the Foundry module.
+
+The rest of §C explains what the script automates, in case you want to do it by
+hand or tune it.
+
+**Manual equivalent:**
+
+```bash
+sudo pacman -S --needed python git glib2 gcc-libs curl   # base + opencv runtime libs
 git clone <this-repo-url> ~/draw_maps
 cd ~/draw_maps
 python3 -m venv .venv
@@ -379,7 +404,8 @@ The model is teacher-agnostic. After any teacher improvement, re-distill and
 re-export (no module change needed — restart the service with the new file):
 
 ```bash
-.venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1
+.venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1 \
+    --out pipeline/models/wall_student_tu_convnext_tiny.pt
 .venv/bin/python pipeline/export_student_onnx.py \
     --ckpt pipeline/models/wall_student_tu_convnext_tiny.pt \
     --encoder tu-convnext_tiny \

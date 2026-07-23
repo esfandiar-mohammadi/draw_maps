@@ -98,7 +98,8 @@ The student is teacher-agnostic. To re-train the ConvNeXt-Tiny default (or after
 any teacher improvement, DINO_IMPROVEMENT_PLAN.md):
 
 ```bash
-.venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1
+.venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1 \
+    --out pipeline/models/wall_student_tu_convnext_tiny.pt
 .venv/bin/python pipeline/export_student_onnx.py \
     --ckpt pipeline/models/wall_student_tu_convnext_tiny.pt \
     --encoder tu-convnext_tiny --out pipeline/models/wall_student_convnext_tiny.onnx
