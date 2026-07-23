@@ -95,9 +95,19 @@ Warm-start Champion + `--tversky_beta 0.7` + `--skeleton_recall` (neue
   Recall-Level. Nebenbefund: **thr0.4 war für BEIDE suboptimal** (Champion 0.768→0.776
   @thr0.5). Aktueller Student: thr0.4 bleibt optimal (0.741; Frontier flacher).
 - Teacher-Verlauf: 0.728 (orig) → 0.768 (frame-aware) → **0.786 (Phase1 @thr0.7)**.
-- **LÄUFT: Re-Distillation** vom Phase1-Teacher (`corpus/distill_pl_p1`,
-  `wall_student_mbv3_p1.pt`) um den Gewinn in den DEPLOYTEN Student zu bringen
-  (shipped Student bleibt bis verifiziert). Ergebnis folgt.
+- **Re-Distillation vom Phase1-Teacher FERTIG → Student-Gewinn NUR +0.003 (Rauschen).**
+  `wall_student_mbv3_p1.pt` (aus `corpus/distill_pl_p1`): best über thr = **0.744
+  @thr0.6** (P0.778 R0.737) vs shipped Student **0.741 @thr0.4**. Teacher +0.018,
+  Student +0.003. **BEFUND: der 6.7M-MobileNetV3-Student ist KAPAZITÄTS-LIMITIERT**
+  — er destilliert auf ~gleiches F1 egal wie gut der Teacher ist (wie schon beim
+  Original: Student ~0.005 unter Teacher). Teacher-Verbesserungen erreichen den
+  deploybaren Student NICHT mehr. [[distill-student-capacity-ceiling]]
+- **ENTSCHEIDUNG: shipped Student bleibt Default** (0.741, verifiziert + in-game-E2E).
+  +0.003 rechtfertigt kein Churn der E2E-getesteten Deployment. `wall_dino_fa_p1.pt`
+  (0.786) + `wall_student_mbv3_p1.pt` (0.744) bleiben als Artefakte verfügbar.
+- **KONSEQUENZ für Phase 2/3:** einen BESSEREN Teacher zu bauen bringt dem PRODUKT
+  (Student) fast nichts mehr — Produkt-Gewinn bräuchte einen GRÖSSEREN Student, nicht
+  besseren Teacher. Das sollte die Phase-2/3-Budget-Entscheidung leiten.
 
 **OFFEN (Phase 2+, NIEDRIGERE Prio, Budget-Gate):** Auflösung 518+LoRA, OHEM/FDA.
 Phase 3 (DINOv3, ControlNet) braucht User-Entscheidungen (Plan §5).
