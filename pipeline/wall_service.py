@@ -5,8 +5,8 @@ the scene's background image here and creates Wall documents from the reply.
 Runs the distilled student (ONNX, CPU by default — no ROCm/CUDA needed on the
 target machine) through the same MS pyramid + build_graph as the benchmark.
 
-  .venv/bin/python pipeline/wall_service.py \
-      --model pipeline/models/wall_student_mbv3.onnx --port 8177
+  .venv/bin/python pipeline/wall_service.py --port 8177
+      # default model = ConvNeXt-Tiny student (graph-F1 0.765 @wall_thr 0.5)
 
 API (CORS: *):
   GET  /health                    -> {"status":"ok",...}
@@ -80,7 +80,7 @@ def ms_predict(img, scales, ref_long=1024):
 def detect(img, scales):
     t0 = time.time()
     wall, junc, rsc = ms_predict(img, scales)
-    nodes, edges = graph_infer.build_graph(wall, junc)
+    nodes, edges = graph_infer.build_graph(wall, junc, wall_thr=ARGS.wall_thr)
     segs = [[round(nodes[a][0] / rsc, 1), round(nodes[a][1] / rsc, 1),
              round(nodes[b][0] / rsc, 1), round(nodes[b][1] / rsc, 1)]
             for a, b, t in edges]
@@ -126,7 +126,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/health"):
             self._send(200, {"status": "ok", "model": os.path.basename(ARGS.model),
-                             "backend": ARGS.backend, "scales": ARGS.scales})
+                             "backend": ARGS.backend, "scales": ARGS.scales,
+                             "wall_thr": ARGS.wall_thr})
         else:
             self._send(404, {"error": "unknown endpoint"})
 
@@ -166,8 +167,11 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     global ARGS, SESS, NET
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="pipeline/models/wall_student_mbv3.onnx",
-                    help="onnx backend: .onnx file. ncnn backend: the .param file.")
+    ap.add_argument("--model", default="pipeline/models/wall_student_convnext_tiny.onnx",
+                    help="onnx backend: .onnx file. ncnn backend: the .param file. "
+                         "Default = ConvNeXt-Tiny student (graph-F1 0.765 @wall_thr 0.5). "
+                         "Fallback = wall_student_mbv3.onnx (0.741 @wall_thr 0.4, 26MB, "
+                         "and the only ncnn/Vulkan-capable model).")
     ap.add_argument("--backend", choices=["onnx", "ncnn"], default="onnx",
                     help="onnx = CPU via onnxruntime (default). ncnn = ncnn "
                          "(add --vulkan for the RX 6600 / RADV GPU path).")
@@ -178,6 +182,11 @@ def main():
     # single-scale 1024 is the default: on the distilled student it matches
     # multi-scale graph-F1 (0.721 vs 0.723 in-scope-32) at ~3x the speed.
     ap.add_argument("--scales", default="1024")
+    # 0.5 is the ConvNeXt-Tiny default (its best graph-F1 operating point);
+    # the MobileNetV3 fallback wants 0.4. build_graph's own default stays 0.4.
+    ap.add_argument("--wall_thr", type=float, default=0.5,
+                    help="wall-probability threshold for graph building "
+                         "(0.5 = ConvNeXt-Tiny default; use 0.4 for the MobileNetV3 fallback).")
     ap.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 4) - 2))
     ARGS = ap.parse_args()
     if ARGS.backend == "ncnn":

@@ -1,3 +1,39 @@
+## 2026-07-23 (nachts, später) — ConvNeXt-Tiny als Deployment-Default PROMOTED
+
+User-Freigabe „Promote ConvNeXt-Tiny" abgearbeitet — die 5 Restschritte aus dem
+RESUME-Block sind durch. **ConvNeXt-Tiny (0.765 @wall_thr 0.5) ist jetzt der
+ausgelieferte Default** (ONNX/CPU). MobileNetV3 (0.741 @thr0.4) bleibt dokumentierter
+Fallback.
+
+1. **ncnn-Parität — FEHLGESCHLAGEN, sauber diagnostiziert + umgangen.** ncnn-Modell
+   lud gar nicht (ONNX-Route: `ConstantOfShape`→malformed `MemoryData 0=512 1=512`,
+   liest 262k Gewichte die nicht im .bin sind). Über **TorchScript-Trace** (pnnx' native
+   Route) lud es → aber **all-NaN-Output**. Bisektiert: NaN entsteht in `convrelu_6`
+   (simple 3×3-Conv im Decoder) → `inf`, UNABHÄNGIG von fp16 (fp32 identisch kaputt),
+   Skip-Blob 311 konvertiert zu falscher 2D-Form. **= pnnx-Decoder-Miscompile spezifisch
+   für die ConvNeXt-U-Net-Decoder-Struktur.** ONNX ist sauber (0.765 verifiziert).
+   → **Entscheidung: ncnn/Vulkan bleibt MobileNetV3-only** (0.722, funktioniert).
+   Kaputte ConvNeXt-ncnn-Dateien entfernt. Vulkan war ohnehin optionaler Speed-Pfad;
+   ConvNeXt-CPU (~2-2.5s Ryzen) reicht fürs One-Shot-Import.
+2. **`wall_service.py`:** `--wall_thr` (default 0.5) ergänzt, an `build_graph`
+   durchgereicht; Default `--model`→ConvNeXt-onnx; `/health` nennt jetzt `wall_thr`;
+   Usage-Kommentar aktualisiert. (build_graph-Default bleibt 0.4.)
+3. **`tools/run_wall_service.sh`:** Modell→ConvNeXt-onnx, Regenerate-Hinweise aktualisiert.
+4. **E2E reverify (beide Backends, echte Map `/tmp/claude-1000/testmap.png` 1396×2048):**
+   ConvNeXt/ONNX-Default → **283 Wände in 0.84s** (JSON + UVTT beide grün, /health
+   meldet convnext+thr0.5). MobileNetV3/ncnn-Fallback → 173 Wände in 0.59s (Beleg dass
+   Fallback lebt). In-Game-Forge-E2E nicht wiederholt (Service-Pfad architektur-agnostisch,
+   für mbv3 bereits verifiziert 2026-07-22).
+5. **Docs:** DEPLOYMENT.md (Quality-Tabelle + §1 + §3) und INSTALL.md (§A.1 Modellbezug,
+   §A.3/A.4/C.1/C.2/C.3/C.4/C.6, Troubleshooting, „Updating") auf ConvNeXt-Default +
+   wall_thr-Konvention + ncnn-MobileNetV3-only-Warnung umgestellt.
+
+Ruff: 5 Pre-existing-Style-Errors in wall_service.py (E401/E702, nicht von mir berührte
+Zeilen) belassen — Codebase-weit toleriert. Nächste optionale Kür: ConvNeXt-Small (54M) /
+DINOv2-ViT-S testen; Teacher weiter pushen bringt Student kaum (belegt). [[distill-student-capacity-ceiling]]
+
+---
+
 ## 2026-07-23 (nachts) — KAPAZITÄT IST DIE DECKE: ConvNeXt-Tiny-Student 0.765 (+0.024)
 
 User-Frage: „Zielsystem bekannt — wie viel Modell wagen? Smarteres Modell (Residual,

@@ -53,25 +53,31 @@ git clone <this-repo-url> draw_maps
 cd draw_maps
 ```
 
-You need the trained model file **`pipeline/models/wall_student_mbv3.onnx`**
-(26 MB, fp32). It is *not* in git (too large for the repo). Obtain it one of two
-ways:
+You need the trained model file **`pipeline/models/wall_student_convnext_tiny.onnx`**
+(122 MB, fp32) — the default ConvNeXt-Tiny student (graph-F1 0.765 @wall_thr 0.5).
+It is *not* in git (too large for the repo). Obtain it one of two ways:
 
-1. **Download** `wall_student_mbv3.onnx` from the project's release/assets page
-   and drop it into `pipeline/models/`, **or**
-2. **Regenerate it** from the teacher (needs a CUDA GPU, ~40 min):
+1. **Download** `wall_student_convnext_tiny.onnx` from the project's
+   release/assets page and drop it into `pipeline/models/`, **or**
+2. **Regenerate it** from the teacher pseudo-labels (needs a CUDA GPU):
    ```bash
-   setsid bash tools/distill_sprint.sh          # pseudo-label → train → eval
+   .venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1
    .venv/bin/python pipeline/export_student_onnx.py \
-       --ckpt pipeline/models/wall_student_mbv3.pt \
-       --out  pipeline/models/wall_student_mbv3.onnx
+       --ckpt pipeline/models/wall_student_tu_convnext_tiny.pt \
+       --encoder tu-convnext_tiny \
+       --out  pipeline/models/wall_student_convnext_tiny.onnx
    ```
 
 Verify it is there:
 
 ```bash
-ls -lh pipeline/models/wall_student_mbv3.onnx   # ~26 MB
+ls -lh pipeline/models/wall_student_convnext_tiny.onnx   # ~122 MB
 ```
+
+> **Smaller/faster fallback:** the MobileNetV3-L student
+> (`wall_student_mbv3.onnx`, 26 MB, graph-F1 0.741 **@wall_thr 0.4**) is also
+> available and is the only model with an ncnn/Vulkan GPU path (§C.6). If you use
+> it, pass `--model …mbv3.onnx --wall_thr 0.4`.
 
 ### A.2 Create the Python environment
 
@@ -93,22 +99,24 @@ or directly, with options:
 
 ```bash
 .venv/bin/python pipeline/wall_service.py \
-    --model pipeline/models/wall_student_mbv3.onnx \
-    --host 127.0.0.1 --port 8177 --scales 1024 --threads 10
+    --model pipeline/models/wall_student_convnext_tiny.onnx \
+    --host 127.0.0.1 --port 8177 --scales 1024 --wall_thr 0.5 --threads 10
 ```
 
 | flag | default | meaning |
 |---|---|---|
+| `--model` | `…convnext_tiny.onnx` | ConvNeXt-Tiny default; `…mbv3.onnx` for the fallback |
 | `--port` | `8177` | TCP port the module connects to |
 | `--host` | `127.0.0.1` | bind address (use `0.0.0.0` only for remote Foundry, §B.4) |
 | `--scales` | `1024` | inference resolution(s); single-scale `1024` is the shipped default |
+| `--wall_thr` | `0.5` | wall-probability threshold; **use `0.4` with the MobileNetV3 fallback** |
 | `--threads` | CPU count − 2 | CPU threads for inference |
 
 ### A.4 Confirm it works
 
 ```bash
 curl http://localhost:8177/health
-# → {"status":"ok","model":"wall_student_mbv3.onnx","scales":"1024"}
+# → {"status":"ok","model":"wall_student_convnext_tiny.onnx","scales":"1024","wall_thr":0.5}
 ```
 
 Leave this terminal running (or install it as a background service — see
@@ -222,9 +230,11 @@ The RX 6600 is **Navi 23 / gfx1032, which ROCm does not officially support**. Th
 usual `HSA_OVERRIDE_GFX_VERSION=10.3.0` workaround is broken on ROCm ≥ 6.4.3
 (would need pinning to 6.4.1). So the service runs **on the CPU via
 onnxruntime** — no ROCm install, nothing to pin, nothing to break on a rolling
-Arch update. Expect **~1.3 s per map** single-scale on the Ryzen 3600 (no VNNI),
-which is fine for a one-shot import. A ROCm-free *GPU* path (ncnn + Vulkan/RADV)
-is a future optimization, not required — the CPU path already meets the budget.
+Arch update. Expect **~2–2.5 s per map** single-scale for the ConvNeXt-Tiny
+default on the Ryzen 3600 (no VNNI), which is fine for a one-shot import (the
+MobileNetV3 fallback is ~1.3 s). A ROCm-free *GPU* path (ncnn + Vulkan/RADV)
+exists but is **MobileNetV3-only** (see §C.6) — the ConvNeXt CPU path already
+meets the budget.
 
 ### C.2 Install (Arch)
 
@@ -234,7 +244,7 @@ git clone <this-repo-url> ~/draw_maps
 cd ~/draw_maps
 python3 -m venv .venv
 .venv/bin/pip install -r pipeline/requirements-service.txt
-# place wall_student_mbv3.onnx into pipeline/models/  (see §A.1)
+# place wall_student_convnext_tiny.onnx into pipeline/models/  (see §A.1)
 ```
 
 ### C.3 Respect the 20%-free budget
@@ -244,12 +254,13 @@ The Ryzen 3600 has 12 threads; keeping ~20 % free means capping inference at
 
 ```bash
 .venv/bin/python pipeline/wall_service.py \
-    --model pipeline/models/wall_student_mbv3.onnx \
-    --host 127.0.0.1 --port 8177 --scales 1024 --threads 9
+    --model pipeline/models/wall_student_convnext_tiny.onnx \
+    --host 127.0.0.1 --port 8177 --scales 1024 --wall_thr 0.5 --threads 9
 ```
 
-Memory is a non-issue: the model is 26 MB and peak working set stays well under
-1 GB of the 16 GB — comfortably inside a ~12 GB budget.
+Memory is a non-issue: the model is 122 MB and peak working set stays well under
+1 GB of the 16 GB — comfortably inside a ~12 GB budget. Expect ~2–2.5 s/map on
+the Ryzen 3600 (single-scale 1024); fine for a one-shot import.
 
 ### C.4 Run it as a background service (systemd user unit)
 
@@ -264,8 +275,8 @@ After=network.target
 [Service]
 WorkingDirectory=%h/draw_maps
 ExecStart=%h/draw_maps/.venv/bin/python pipeline/wall_service.py \
-    --model pipeline/models/wall_student_mbv3.onnx \
-    --host 127.0.0.1 --port 8177 --scales 1024 --threads 9
+    --model pipeline/models/wall_student_convnext_tiny.onnx \
+    --host 127.0.0.1 --port 8177 --scales 1024 --wall_thr 0.5 --threads 9
 Restart=on-failure
 
 [Install]
@@ -290,15 +301,21 @@ If Foundry runs on this same machine, the default Service URL
 `http://localhost:8177` just works — no tunnel needed. Only use §B.4's tunnel if
 your Foundry is hosted elsewhere.
 
-### C.6 Optional: GPU on the RX 6600 via Vulkan (ncnn, ROCm-free)
+### C.6 Optional: GPU on the RX 6600 via Vulkan (ncnn, ROCm-free) — MobileNetV3 only
 
 The CPU path already meets the latency budget, so this is optional. But the
 RX 6600 *can* be used without ROCm through **ncnn + Vulkan (RADV)** — the same
 Mesa driver the desktop uses, no gfx1032 workaround needed.
 
-**Quality is identical to the shipped model** — the ncnn build was verified at
-graph-F1 **0.722** (P0.796 R0.684) on the in-scope-32 set vs the ONNX student's
-0.721; the fp16 weights match to within noise (wall-mask IoU 0.976).
+> **This path uses the MobileNetV3 fallback, not the ConvNeXt-Tiny default.**
+> pnnx miscompiles the ConvNeXt decoder (a plain 3×3 conv emits `inf` → all-NaN
+> output, fp16 *and* fp32 alike), so ConvNeXt-Tiny has no working ncnn/Vulkan
+> build. Choosing Vulkan therefore trades quality 0.765 → 0.722 for GPU speed.
+> If you want the 0.765 quality, stay on the ConvNeXt ONNX/CPU default.
+
+**MobileNetV3 ncnn quality is identical to its ONNX** — verified at graph-F1
+**0.722** (P0.796 R0.684) on the in-scope-32 set vs its ONNX 0.721; the fp16
+weights match to within noise (wall-mask IoU 0.976).
 
 Install the Vulkan runtime and ncnn:
 
@@ -331,9 +348,9 @@ this box before switching over:
 
 ```bash
 # CPU:
-.venv/bin/python pipeline/ncnn_eval.py --per_map
+.venv/bin/python pipeline/ncnn_eval.py --per_map --wall_thr 0.4
 # Vulkan (RX 6600):
-NCNN_VULKAN=1 .venv/bin/python pipeline/ncnn_eval.py --per_map
+NCNN_VULKAN=1 .venv/bin/python pipeline/ncnn_eval.py --per_map --wall_thr 0.4
 ```
 
 > **Note:** Vulkan latency was **not** benchmarked on the RX 6600 during
@@ -349,7 +366,7 @@ NCNN_VULKAN=1 .venv/bin/python pipeline/ncnn_eval.py --per_map
 |---|---|
 | "Detect Walls (ML)" button missing | Module not enabled, or you installed the archived `auto-wall-companion` (no `-ml`). Enable **Auto Wall Companion (ML)** (§B.1 warning). |
 | Dialog error "could not reach service" | Service not running (`curl http://localhost:8177/health`), wrong Service URL, or (hosted Foundry) mixed-content block → use the HTTPS tunnel (§B.4). |
-| Model file missing on start | `wall_student_mbv3.onnx` not in `pipeline/models/` — see §A.1. |
+| Model file missing on start | `wall_student_convnext_tiny.onnx` not in `pipeline/models/` — see §A.1. |
 | Walls offset from the image | Scene padding not 0 — set Scene → Configure → Padding = 0 and re-run (§B.5). |
 | Detection slow (> 3 s) | Reduce to single-scale (`--scales 1024`, default), raise `--threads`, close other CPU load. |
 | `onnxruntime` warns about `/sys/class/drm/card0` | Harmless GPU-probe warning on headless/AMD boxes; the service runs on CPU regardless. |
@@ -362,10 +379,11 @@ The model is teacher-agnostic. After any teacher improvement, re-distill and
 re-export (no module change needed — restart the service with the new file):
 
 ```bash
-setsid bash tools/distill_sprint.sh
+.venv/bin/python pipeline/train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1
 .venv/bin/python pipeline/export_student_onnx.py \
-    --ckpt pipeline/models/wall_student_mbv3.pt \
-    --out  pipeline/models/wall_student_mbv3.onnx
+    --ckpt pipeline/models/wall_student_tu_convnext_tiny.pt \
+    --encoder tu-convnext_tiny \
+    --out  pipeline/models/wall_student_convnext_tiny.onnx
 systemctl --user restart wall-service.service      # if using the systemd unit
 ```
 

@@ -1,41 +1,30 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-23 nachts: ConvNeXt-Tiny-Student wird
-> PROMOTED (User-Freigabe da). Nach `/clear` ZUERST diesen Block + notes.md TOP.**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-23 nachts (später): ConvNeXt-Tiny-Student
+> PROMOTED & ausgeliefert. Alle 5 Restschritte DURCH. Nach `/clear` ZUERST diesen
+> Block + notes.md TOP (oberster Eintrag = die Promotion).**
 >
-> **KONTEXT der Session (2026-07-23): 4 User-Prioritäten ABGEARBEITET** (INSTALL.md;
-> Student-Recall; Speed RX 6600 ncnn/Vulkan; Teacher Phase 0+1). Dann User-Frage
-> „wie viel Modell wagen / smarteres Modell?" → **Kapazität IST die Decke bewiesen:
-> ConvNeXt-Tiny-Student (32M) = graph-F1 0.765 @wall_thr0.5 (+0.024 über shipped
-> MobileNetV3 0.741, nur 0.021 unter Teacher 0.786).** EfficientNet-B4 (20M)=0.740
-> (→ Architektur, nicht Params). Details: notes.md OBERSTER Eintrag + Memories
+> **ConvNeXt-Tiny (0.765 @wall_thr0.5, 32M) ist jetzt der Deployment-DEFAULT**
+> (ONNX/CPU). MobileNetV3 (0.741 @thr0.4, 6.7M) = dokumentierter Fallback + einziger
+> ncnn/Vulkan-Pfad. Kapazität war die Decke (EfficientNet-B4 20M=0.740 → Architektur,
+> nicht Params); besserer Teacher transferiert kaum (+0.018 Teacher → +0.003 Student).
 > [[distill-student-capacity-ceiling]] [[vectorizer-border-filter-recall]].
 >
-> **▶️ AKTIVE AUFGABE bei „continue": ConvNeXt-Tiny als Deployment-Default fertig
-> promoten. User hat „Promote ConvNeXt-Tiny" gewählt. Artefakte liegen (git-ignored):**
-> `pipeline/models/wall_student_convnext_tiny.onnx` (122MB, Parität 4e-5, 0.765
-> verifiziert), `wall_student_tu_convnext_tiny.pt`, `wall_student_convnext_tiny.ncnn.{param,bin}`
-> (frisch via pnnx, NOCH NICHT paritäts-verifiziert). Trainiert:
-> `train_student.py --encoder tu-convnext_tiny --pseudo corpus/distill_pl_p1`.
-> **RESTSCHRITTE (in Reihenfolge):**
-> 1. **ncnn-Parität prüfen:** `.venv/bin/python pipeline/ncnn_eval.py --param
->    pipeline/models/wall_student_convnext_tiny.ncnn.param --wall_thr 0.5` → erwarte ~0.765.
->    (ncnn_eval hat onnxruntime-first-Stabilisator + 2-Phasen; pad-to-1024²-Quadrat
->    gilt auch für ConvNeXt, da bei 1024² getract.)
-> 2. **`wall_service.py`:** `--wall_thr`-Flag ergänzen (default 0.5), in `detect()`
->    an `build_graph(..., wall_thr=ARGS.wall_thr)` durchreichen; Default `--model`
->    auf ConvNeXt-onnx umstellen. MobileNetV3 (0.741, 26MB, thr0.4) als Fallback
->    dokumentieren. (build_graph-Default bei 0.4 LASSEN — nur Service auf 0.5.)
-> 3. **`tools/run_wall_service.sh`:** Modellpfad → ConvNeXt-onnx.
-> 4. **E2E-Reverify:** Service starten (onnx UND ncnn-Backend), 1 echtes Bild
->    POSTen (`/tmp/claude-1000/testmap.png` bzw. aus dd2vtt), Wände+Latenz prüfen.
->    In-Game-Forge-E2E optional (Service-Pfad ist architektur-agnostisch → scripted reicht).
-> 5. **Docs:** DEPLOYMENT.md + INSTALL.md: neuer Default ConvNeXt-Tiny 0.765,
->    wall_thr=0.5, Latenz ~2-2.5s Ryzen / sub-1s RX6600-Vulkan, onnx 122MB/ncnn 64MB;
->    MobileNetV3-Fallback-Zeile behalten. notes.md + commit.
-> **NICHT nötig:** Teacher weiter pushen (Phase 2/3) — transferiert kaum zum Student
-> (belegt: Teacher +0.018 → Student +0.003). Optional-Kür: ConvNeXt-Small (54M) /
-> DINOv2-ViT-S testen (User hat vorerst Tiny gewählt).
+> **Was gemacht wurde (Details notes.md OBERSTER Eintrag):**
+> 1. **ncnn/Vulkan bleibt MobileNetV3-only** — ConvNeXt konvertiert NICHT nach ncnn:
+>    pnnx-Decoder-Miscompile (`convrelu_6` 3×3-Conv → `inf`, all-NaN; fp16=fp32 gleich
+>    kaputt; auch via TorchScript-Route). Sauber bisektiert. Kaputte .ncnn-Dateien
+>    entfernt. Vulkan war optionaler Speed-Pfad; ConvNeXt-CPU (~2-2.5s Ryzen) reicht.
+> 2. `wall_service.py`: `--wall_thr` (def 0.5) → `build_graph`, Default-`--model`
+>    →ConvNeXt-onnx, `/health` nennt wall_thr. (build_graph-Default bleibt 0.4.)
+> 3. `tools/run_wall_service.sh`: → ConvNeXt-onnx.
+> 4. E2E beide Backends grün: ConvNeXt/ONNX 283 Wände/0.84s, mbv3/ncnn 173/0.59s
+>    (testmap.png 1396×2048). In-Game-Forge nicht wiederholt (architektur-agnostisch).
+> 5. DEPLOYMENT.md + INSTALL.md auf ConvNeXt-Default umgestellt (+ ncnn-only-Warnung).
+>
+> **▶️ BEI „continue" = OPTIONALE KÜR (kein offener Pflichtschritt):** ConvNeXt-Small
+> (54M) / DINOv2-ViT-S als evtl. stärkerer Student; oder Teacher-Phase-2/3 (lohnt
+> für Student kaum, belegt). User fragen was priorisiert wird.
 >
 > **Modell-Bestwerte aktuell (in-scope-32 graph-F1, frame-aware Vektorisierer):**
 > Teacher DINO 0.786 (Phase1, @thr0.7) · **Student ConvNeXt-Tiny 0.765 (@thr0.5, NEU)**
