@@ -1,10 +1,24 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-23 nachts (später): ConvNeXt-Tiny-Student
-> PROMOTED & ausgeliefert. Alle 5 Restschritte DURCH. Nach `/clear` ZUERST diesen
-> Block + notes.md TOP (oberster Eintrag = die Promotion).**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-24 spät: PROJEKT DEPLOYMENT-FERTIG, umbenannt,
+> auf GitHub. Nach `/clear` ZUERST diesen Block + notes.md TOP-Eintrag.**
 >
-> **ConvNeXt-Tiny (0.765 @wall_thr0.5, 32M) ist jetzt der Deployment-DEFAULT**
+> **PRODUKTNAME: „Wall Annotation Companion"** (Modul-id `wall-annotation-companion`
+> v2.2.0) — NICHT mehr „Auto Wall Companion (ML)" (das war Upstream-Name-Kollision).
+> **GitHub (privat):** `https://github.com/esfandiar-mohammadi/draw_maps`, branch
+> `main`, Token in `~/.git-credentials` → pushen geht direkt. **Doku = README.md**
+> (INSTALL.md gelöscht); DEPLOYMENT.md = Modell/Qualität; DISTILL_PLAN.md = Distill.
+> **install.sh** (Repo-Root) = vollautonomer, resumierbarer Arch-Installer: zieht das
+> Modell automatisch von http://mohammadi.eu/dateien/wall_student_convnext_tiny.onnx,
+> baut venv, systemd-Service, installiert das Foundry-Modul LOKAL (findet Foundry-
+> Data-Dir selbst), self-test. Details: notes.md TOP-Eintrag.
+> **▶️ EINZIG OFFEN: der echte `bash install.sh`-Lauf auf dem Arch-Ziel** (Ryzen3600/
+> RX6600, Foundry lokal). pacman/systemd/Vulkan konnten auf der Ubuntu-aarch64-Devbox
+> NIE real laufen (alles andere gestubt+getestet). Bei „continue" ohne neue Anweisung:
+> User fragen, ob Ziel-Lauf ansteht oder optionale Kür (ConvNeXt-Small etc.).
+>
+> **── Deployment-Fakten (weiter gültig) ──**
+> **ConvNeXt-Tiny (0.765 @wall_thr0.5, 32M) ist der Deployment-DEFAULT**
 > (ONNX/CPU). MobileNetV3 (0.741 @thr0.4, 6.7M) = dokumentierter Fallback + einziger
 > ncnn/Vulkan-Pfad. Kapazität war die Decke (EfficientNet-B4 20M=0.740 → Architektur,
 > nicht Params); besserer Teacher transferiert kaum (+0.018 Teacher → +0.003 Student).

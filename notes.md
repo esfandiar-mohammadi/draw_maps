@@ -1,3 +1,39 @@
+## 2026-07-24 (spät-2) — Rename → Wall Annotation Companion; README ersetzt INSTALL.md; Modell-Auto-Download; GitHub-Remote live
+
+- **GITHUB-REMOTE (privat):** `https://github.com/esfandiar-mohammadi/draw_maps`
+  (branch `main`). Token in `~/.git-credentials` (github.com-Zeile, credential.helper
+  =store) → ich kann pushen ohne dass Token im Chat landet. Repo ist self-contained
+  für Clone-Deploy (verifiziert): install.sh + pipeline/*.py + foundry_module/*.zip;
+  Modell (122MB) git-ignored, wird gezogen (s.u.). Secret-Scan (Tree+History) sauber.
+- **RENAME „Auto Wall Companion (ML)" → „Wall Annotation Companion"** (User: Name
+  kollidiert mit Upstream ThreeHats/auto-wall-companion). Modul-id `auto-wall-
+  companion-ml` → **`wall-annotation-companion`** v2.2.0. Quelle: src/module.json
+  (id kommt via `import {id}` überall hin), package.json version, `npm run build`
+  (node v24 @ ~/.nvm), neu gepackt. Nested-Repo-commit cd52942. Button „Detect Walls
+  (ML)" + CSS-Klasse `auto-wall-dialog` ABSICHTLICH unverändert (Feature-Label, kein
+  Produktname). install.sh MODULE_ID/Strings/Ordner/zip-Discovery angepasst; Modul
+  landet in `Data/modules/wall-annotation-companion/` (Clone-getestet).
+- **MODELL-AUTO-DOWNLOAD:** install.sh zieht das Modell automatisch von
+  **http://mohammadi.eu/dateien/wall_student_convnext_tiny.onnx** wenn nirgends lokal
+  gefunden (MODEL_DEFAULT_URL; nur onnx/CPU-Pfad, nicht --vulkan). --model-url/
+  --model-src überschreiben. Download-Branch verifiziert (file://-Fetch, size+SHA).
+- **DOCS:** neue **README.md** (deskriptiver Intro-Teil über das Tool + kompletter
+  Install/Usage aus INSTALL.md, echte Clone-URL, Auto-Download; Credits ThreeHats/MIT).
+  **INSTALL.md GELÖSCHT.** DEPLOYMENT.md + requirements-service.txt Referenzen
+  INSTALL.md→README umgebogen. DEPLOYMENT.md bleibt (Modell/Qualität-Details).
+- **STALE-ZIP-Bug (vorher, gefixt):** committete module.zip war Pre-Fix v2.0.0 (alte
+  id) → jetzt korrekt. **foundry_module/*.zip ist die getrackte Deploy-Kopie**
+  (vendor/ ist git-ignored → wäre sonst nicht im Clone). install.sh sucht
+  foundry_module/ zuerst, dann vendor/ (rsync-Fall).
+
+**DEPLOY-STAND: fertig & clone-deploybar.** Zielrechner (Arch, Ryzen3600/RX6600,
+Foundry LOKAL): `git clone <url> ~/draw_maps && cd ~/draw_maps && bash install.sh`.
+Das zieht Modell, installiert Service (systemd) + Foundry-Modul lokal, self-test.
+Danach in Foundry 1× Modul aktivieren. OFFEN: nur der echte Lauf auf dem Arch-Ziel
+(pacman/systemd/Vulkan konnten hier nie real laufen — Ubuntu-aarch64-Devbox).
+
+---
+
 ## 2026-07-24 (später) — install.sh installiert auch das Foundry-Modul lokal + STALE-ZIP-Bug gefixt
 
 User-Klarstellung: Zielrechner fährt Foundry LOKAL (kein Forge) → Modul-Install muss
