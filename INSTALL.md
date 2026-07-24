@@ -269,11 +269,23 @@ What makes it safe to just run (and re-run):
   falls back to Arch's `python-onnxruntime`/`python-opencv` packages; the final
   self-test POSTs a real image and requires a wall-detection answer.
 
+On a box that **runs Foundry locally**, the installer also finds the Foundry
+user-data folder (running process `--dataPath`, `Config/options.json`, or the
+usual locations) and installs the module into
+`<data>/Data/modules/auto-wall-companion-ml/` for you — so Part B below is only
+needed if the auto-search can't find your Foundry (then pass `--foundry-data`)
+or you install the module on a *different* machine. Enabling the module and
+picking the world stays a one-time click in the Foundry UI (it is per-world and
+unsafe to edit while Foundry runs); the module's Service URL already defaults to
+the address the installer prints.
+
 Useful flags: `--port N`, `--host ADDR`, `--threads N` (default ~80 % of cores),
 `--vulkan` (MobileNetV3 + ncnn/Vulkan GPU path, §C.6), `--no-service` (skip the
-systemd unit), `--model-url` / `--model-src` (obtain the model), `--status`,
-`--reset`, `--uninstall`. `--help` lists all. On success it prints the
-**Service URL** to paste into the Foundry module.
+systemd unit), `--no-module` (skip the Foundry-module install),
+`--foundry-data DIR` (Foundry user-data folder if auto-search fails),
+`--model-url` / `--model-src` (obtain the model), `--status`, `--reset`,
+`--uninstall`. `--help` lists all. On success it prints the **Service URL** and
+the module location.
 
 The rest of §C explains what the script automates, in case you want to do it by
 hand or tune it.

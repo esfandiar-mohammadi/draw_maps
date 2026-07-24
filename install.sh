@@ -8,6 +8,8 @@
 # That is all. The script:
 #   • figures out what is already installed and skips it,
 #   • finds the model file by itself (repo, ~, ~/Downloads, USB mounts, ...),
+#   • finds the LOCAL Foundry data folder and installs the module into it
+#     (so a box running Foundry locally needs no manual copy),
 #   • asks for root ONLY when needed — and lets you either type your sudo
 #     password, run the command yourself in another terminal, or abort,
 #   • remembers every completed step in .install_state/ and, when re-run,
@@ -27,6 +29,9 @@
 #   --threads N       inference threads (default ≈80% of cores → 9 on a 3600)
 #   --model-src PATH  use this model file instead of searching
 #   --model-url URL   download the model from URL if not found locally
+#   --foundry-data D  Foundry user-data dir (the folder containing Data/), if the
+#                     auto-search can't find your local Foundry install
+#   --no-module       do not install the Foundry module (service only)
 #   --vulkan          use the MobileNetV3+ncnn/Vulkan GPU path instead of the
 #                     ConvNeXt/CPU default (RX 6600 via RADV; lower quality
 #                     0.722 vs 0.765 — see INSTALL.md §C.6)
@@ -57,6 +62,7 @@ MODEL_NCNN_MINBYTES=10000000
 WALL_THR_ONNX="0.5"                  # ConvNeXt-Tiny operating point
 WALL_THR_NCNN="0.4"                  # MobileNetV3 operating point
 UNIT_NAME="wall-service.service"
+MODULE_ID="auto-wall-companion-ml"   # unique id — NOT plain auto-wall-companion (archived upstream, collides)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pretty output + logging (everything also lands in .install_state/install.log)
@@ -80,6 +86,7 @@ run_logged() { _log "RUN   $*"; "$@" >>"${LOGFILE:-/dev/null}" 2>&1; }
 # ─────────────────────────────────────────────────────────────────────────────
 PORT_PREF=8177; HOST=127.0.0.1; THREADS=""; MODEL_SRC=""; MODEL_URL=""
 VULKAN=0; NO_SERVICE=0; DO_STATUS=0; DO_RESET=0; DO_UNINSTALL=0
+NO_MODULE=0; FOUNDRY_DATA=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --port)      PORT_PREF="$2"; shift 2;;
@@ -87,6 +94,8 @@ while [ $# -gt 0 ]; do
     --threads)   THREADS="$2"; shift 2;;
     --model-src) MODEL_SRC="$2"; shift 2;;
     --model-url) MODEL_URL="$2"; shift 2;;
+    --foundry-data) FOUNDRY_DATA="$2"; shift 2;;
+    --no-module) NO_MODULE=1; shift;;
     --vulkan)    VULKAN=1; shift;;
     --no-service) NO_SERVICE=1; shift;;
     --status)    DO_STATUS=1; shift;;
@@ -502,6 +511,118 @@ PY
   mark selftest
 }
 
+# ── step 10: install the Foundry module into the LOCAL Foundry data dir ──────
+# The module (browser side) is separate from the service. On a box that runs
+# Foundry locally we can install it automatically: find Foundry's user-data
+# folder and drop the module into <data>/Data/modules/<id>/. Enabling it and
+# picking the world stays a one-time UI click (per-world, and unsafe to poke
+# while Foundry is running) — but the files land in the right place by itself.
+MODULE_ZIP="$REPO/vendor/auto-wall-companion/module.zip"
+foundry_data_candidates() {
+  # print candidate USER-DATA dirs (the folder that CONTAINS Data/ and Config/)
+  [ -n "$FOUNDRY_DATA" ] && printf '%s\n' "$FOUNDRY_DATA"
+  # 1) a running Foundry process with --dataPath=...
+  local line dp
+  while IFS= read -r line; do
+    dp=$(printf '%s\n' "$line" | grep -oE -- '--dataPath[ =][^ ]+' | head -1 | sed -E 's/--dataPath[ =]//')
+    [ -n "$dp" ] && printf '%s\n' "${dp%/}"
+  done < <(pgrep -af 'resources/app/main.js|foundryvtt|main.mjs' 2>/dev/null)
+  # 2) dataPath recorded in any options.json under known config roots
+  local cfg
+  for cfg in "$HOME/.local/share/FoundryVTT/Config/options.json" \
+             "${XDG_DATA_HOME:-$HOME/.local/share}/FoundryVTT/Config/options.json" \
+             "$HOME/.config/FoundryVTT/Config/options.json" \
+             /local/FoundryVTT/Config/options.json; do
+    [ -f "$cfg" ] || continue
+    dp=$(grep -oE '"dataPath"[^,}]*' "$cfg" | head -1 | sed -E 's/.*"dataPath" *: *"([^"]*)".*/\1/')
+    [ -n "$dp" ] && printf '%s\n' "${dp%/}"
+  done
+  # 3) common default locations
+  printf '%s\n' "$HOME/.local/share/FoundryVTT" "$HOME/FoundryVTT" \
+                "$HOME/foundrydata" "$HOME/foundryuserdata" \
+                "/opt/foundrydata" "/srv/foundryvtt" "/var/lib/foundryvtt"
+  # 4) bounded filesystem search: a dir containing Data/modules AND Data/worlds
+  local d
+  while IFS= read -r d; do printf '%s\n' "$(cd "$d/../.." && pwd)"; done \
+    < <(find "$HOME" -maxdepth 5 -type d -name modules -path "*/Data/modules" 2>/dev/null | head -5)
+}
+foundry_modules_dir() {  # echo the first candidate that looks like a real Foundry data dir
+  local c
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    if [ -d "$c/Data" ] || [ -d "$c/Data/worlds" ] || [ -d "$c/Data/systems" ]; then
+      printf '%s\n' "$c/Data/modules"; return 0
+    fi
+  done < <(foundry_data_candidates)
+  return 1
+}
+module_installed_ok() {  # <moduledir> — files present and correct id+version?
+  local md="$1" mj="$1/module.json"
+  [ -f "$mj" ] && [ -f "$md/scripts/module.js" ] || return 1
+  grep -q "\"id\": *\"$MODULE_ID\"" "$mj" || return 1
+  # up to date? compare version with the shipped zip's module.json
+  local want got
+  want=$(unzip -p "$MODULE_ZIP" module.json 2>/dev/null | grep -oE '"version"[^,}]*' | head -1)
+  got=$(grep -oE '"version"[^,}]*' "$mj" | head -1)
+  [ "$want" = "$got" ]
+}
+verify_module() {
+  [ "$NO_MODULE" -eq 1 ] && return 0
+  local md; md="$(recall moduledir)"
+  [ -n "$md" ] || { fail "Foundry module not installed yet"; return 1; }
+  module_installed_ok "$md" || { fail "module files missing/outdated at $md"; return 1; }
+  return 0
+}
+do_module() {
+  [ "$NO_MODULE" -eq 1 ] && return 0
+  [ -f "$MODULE_ZIP" ] || { fail "module package missing: $MODULE_ZIP"; return 1; }
+  # guard: the shipped zip MUST carry the collision-safe id
+  unzip -p "$MODULE_ZIP" module.json 2>/dev/null | grep -q "\"id\": *\"$MODULE_ID\"" \
+    || { fail "$MODULE_ZIP has the wrong module id (expected $MODULE_ID) — rebuild it from dist/"; return 1; }
+
+  local moddir; moddir="$(foundry_modules_dir || true)"
+  if [ -z "$moddir" ]; then
+    if [ -t 0 ] && [ -t 1 ]; then
+      echo "  Could not locate Foundry's user-data folder automatically."
+      echo "  In Foundry it is shown at ${C_C}Setup → Configuration → \"User Data Path\"${C_0}."
+      read -r -p "  Paste it here (or leave blank to skip module install): " ans
+      if [ -n "$ans" ]; then
+        ans="${ans%/}"; moddir="$ans/Data/modules"
+      fi
+    fi
+  fi
+  if [ -z "$moddir" ]; then
+    warn "skipping automatic module install — Foundry data dir not found."
+    warn "install it by hand: unzip $MODULE_ZIP into <FoundryData>/Data/modules/$MODULE_ID/"
+    warn "or re-run:  bash install.sh --foundry-data /path/to/FoundryUserData"
+    NO_MODULE=1   # don't fail the whole install over the browser-side piece
+    return 0
+  fi
+
+  local target="$moddir/$MODULE_ID"
+  mkdir -p "$target" || { fail "cannot create $target (permissions?)"; return 1; }
+  # clean any stale contents (also removes a wrongly-named old install alongside)
+  rm -rf "${target:?}/"* 2>/dev/null || true
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -oq "$MODULE_ZIP" -d "$target" || { fail "unzip into $target failed"; return 1; }
+  else
+    "$REPO/.venv/bin/python" -c "import zipfile,sys; zipfile.ZipFile('$MODULE_ZIP').extractall('$target')" \
+      || { fail "could not extract module (no unzip, python fallback failed)"; return 1; }
+  fi
+  # if a mis-named archived copy exists next to us, warn (it shadows via update)
+  if [ -d "$moddir/auto-wall-companion" ]; then
+    warn "an 'auto-wall-companion' (no -ml) module also exists at $moddir — that is the"
+    warn "archived upstream; disable/remove it in Foundry to avoid the update collision."
+  fi
+  remember moduledir "$target"
+  ok "module installed → $target"
+  # is Foundry running? then it must be restarted to rescan modules.
+  if pgrep -af 'resources/app/main.js|foundryvtt|main.mjs' >/dev/null 2>&1; then
+    warn "Foundry is running — restart it so it picks up the new module."
+  fi
+  return 0
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Special modes
 # ═════════════════════════════════════════════════════════════════════════════
@@ -511,12 +632,14 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
   rm -f "$UNIT_PATH" && ok "unit file removed" || true
   systemctl --user daemon-reload 2>/dev/null || true
   [ -f "$STATE/service.pid" ] && kill "$(cat "$STATE/service.pid")" 2>/dev/null && ok "background instance stopped"
+  md="$(recall moduledir)"
+  if [ -n "$md" ] && [ -d "$md" ]; then rm -rf "$md" && ok "Foundry module removed ($md)"; fi
   rm -f "$STATE"/step.* "$STATE"/chosen.* "$STATE/service.pid"
   ok "state cleared (venv and model kept; delete $REPO/.venv manually if wanted)"
   exit 0
 fi
 
-STEPS=(sanity pacman model venv pydeps config unit running selftest)
+STEPS=(sanity pacman model venv pydeps config unit running selftest module)
 declare -A DESC=(
   [sanity]="system sanity (Arch, disk, RAM)"
   [pacman]="system packages (pacman)"
@@ -527,6 +650,7 @@ declare -A DESC=(
   [unit]="systemd user service"
   [running]="service running"
   [selftest]="end-to-end self-test"
+  [module]="Foundry module (local install)"
 )
 
 if [ "$DO_STATUS" -eq 1 ]; then
@@ -570,15 +694,24 @@ PORT="$(recall port)"
 echo
 echo "${C_G}${C_B}Installation complete and verified.${C_0}"
 echo
-echo "  Service URL for the Foundry module:   ${C_B}http://$HOST:$PORT${C_0}"
+echo "  Service URL (already the module's default):   ${C_B}http://$HOST:$PORT${C_0}"
 echo "  Model: $(basename "$(model_target)")   threads: $(recall threads)"
 if [ "$NO_SERVICE" -eq 0 ]; then
-  echo "  Runs as a systemd user service:"
+  echo "  Service runs as a systemd user unit:"
   echo "      systemctl --user status|restart|stop $UNIT_NAME"
   echo "      journalctl --user -u $UNIT_NAME -f        # live log"
 fi
 echo
-echo "  Next (one-time, in the browser): install the Foundry module —"
-echo "  INSTALL.md Part B. Set its Service URL to the address above."
-echo "  Hosted Foundry (The Forge etc.) additionally needs an HTTPS tunnel"
-echo "  (INSTALL.md §B.4):  cloudflared tunnel --url http://localhost:$PORT"
+MD="$(recall moduledir)"
+if [ -n "$MD" ]; then
+  echo "  Foundry module installed at:"
+  echo "      $MD"
+  echo "  Last one-time steps IN FOUNDRY (browser/app, this machine):"
+  echo "    1. restart Foundry if it was running (so it rescans modules)"
+  echo "    2. Game Settings → Manage Modules → enable ${C_B}Auto Wall Companion (ML)${C_0} → Save"
+  echo "    3. open a scene, set Scene → Configure → Padding = 0,"
+  echo "       pick the Walls tool → ${C_B}Detect Walls (ML)${C_0}. Service URL is preset to the above."
+elif [ "$NO_MODULE" -eq 1 ]; then
+  echo "  Foundry module: skipped. Install it by hand — INSTALL.md Part B —"
+  echo "  into  <FoundryUserData>/Data/modules/$MODULE_ID/  and enable it."
+fi

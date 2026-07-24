@@ -1,3 +1,39 @@
+## 2026-07-24 (später) — install.sh installiert auch das Foundry-Modul lokal + STALE-ZIP-Bug gefixt
+
+User-Klarstellung: Zielrechner fährt Foundry LOKAL (kein Forge) → Modul-Install muss
+auf demselben Rechner passieren, und der Installer soll (wie ursprünglich verlangt)
+die lokalen Pfade dafür selbst finden. Zwei Sachen:
+
+1. **STALE-ZIP-Bug gefunden (hätte User getroffen):** `vendor/auto-wall-companion/
+   module.zip` (worauf INSTALL.md B.2 + meine frühere Antwort zeigten) war ein
+   VOR-Fix-Build: id `auto-wall-companion` v2.0.0 = exakt die Kollision aus
+   [[foundry-module-id-collision]] (Foundry-„Update" zieht archiviertes Upstream ohne
+   ML). Korrektes Artefakt war `dist/` bzw. `awc-ml-2.1.0.zip` (id
+   `auto-wall-companion-ml` v2.1.0). module.zip aus dist/ neu gebaut → jetzt korrekt
+   (Modul-Repo commit fca6c1c). Merke: Verweis-Ziel VOR Deploy verifizieren, nicht
+   nur dass „eine zip existiert".
+2. **install.sh: neuer Step `module` (10. Step).** Findet Foundry-User-Data-Dir per
+   (a) laufendem Prozess `--dataPath`, (b) `Config/options.json`-`dataPath`, (c)
+   Standardpfaden (~/.local/share/FoundryVTT etc.), (d) bounded find nach `Data/
+   modules`. Entpackt module.zip nach `<data>/Data/modules/auto-wall-companion-ml/`.
+   Verify = id+version match gegen zip → outdated wird repariert. Kollisions-Guard:
+   bricht ab, wenn die zip die falsche id trägt. Nicht gefunden → WARN+skip (nicht
+   fatal; Service ist das Kritische) + Anleitung/`--foundry-data`. Foundry läuft →
+   Warnung „neu starten". Enable+World bleibt 1× UI-Klick (per-world, unsafe während
+   Foundry läuft; Service-URL-Default ist eh localhost:8177). Flags neu: `--no-module`,
+   `--foundry-data DIR`. Uninstall entfernt Modul-Dir mit.
+   **Getestet (7 Modul-Szenarien, alle grün):** explizit/auto-discovery(options.json &
+   Prozess)/idempotent-skip/outdated-repair/not-found-skip/--no-module/collision-guard;
+   + voller 10-Step-Lauf + resume(10 skip) + status + uninstall. shellcheck sauber.
+   DEPLOYMENT.md §2 + INSTALL.md §C.2 aktualisiert (Modul jetzt auto; -ml-Ordnername).
+
+**Konzept-Klarstellung an User:** der „lokale Server" (wall_service:8177) ist NICHT
+Teil der Modul-Installation, sondern das permanente Runtime-Backend, das das Modul bei
+jedem „Detect Walls (ML)" per HTTP anruft. Modul-Install (Dateien) und Service laufen
+unabhängig.
+
+---
+
 ## 2026-07-24 — install.sh: resumable Ein-Kommando-Installer (ersetzt deploy_arch.sh)
 
 User will „nur Install drücken", ungetestbares Zielsystem (Arch x86_64, Kernel 7.1!,

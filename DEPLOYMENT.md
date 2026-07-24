@@ -78,9 +78,13 @@ conversion (pnnx) in INSTALL.md §C.6; standalone eval `pipeline/ncnn_eval.py`.
 
 ## 2. Install the Foundry module
 
-`vendor/auto-wall-companion/module.zip` (rebuild: `npm run build && cd dist &&
-zip -r ../module.zip .`). Install into `Data/modules/auto-wall-companion/` or via
-the host's module importer, then enable it in the world.
+`install.sh` installs the module automatically on a box that runs Foundry
+locally (finds the Foundry data dir; see INSTALL.md §C.2). To do it by hand:
+`vendor/auto-wall-companion/module.zip` (id `auto-wall-companion-ml` v2.1.0;
+rebuild: `npm run build && cd dist && zip -r ../module.zip .`) → extract into
+`<FoundryData>/Data/modules/auto-wall-companion-ml/` (the `-ml` folder name is
+required — the plain `auto-wall-companion` id collides with the archived
+upstream), then enable it in the world.
 
 - A new **"Detect Walls (ML)"** button appears in the Walls scene controls.
 - Set the service URL in module settings (default `http://localhost:8177`).
