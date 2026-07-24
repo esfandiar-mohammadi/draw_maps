@@ -47,12 +47,34 @@ one extra step — see [§B.4 Remote / hosted Foundry](#b4-remote--hosted-foundr
 
 ## Part A — Install the companion service
 
-### A.1 Get the code and the model
+### A.0 Get the code onto the box
 
-```bash
-git clone <this-repo-url> draw_maps
-cd draw_maps
-```
+The code lives in the **`draw_maps`** repository. Pick whichever transfer fits:
+
+- **If the repo is published to a git host** (GitHub, a private server, …):
+  ```bash
+  git clone <this-repo-url> draw_maps && cd draw_maps
+  ```
+- **Copy the working tree directly** (no remote needed — e.g. from the dev box;
+  `install.sh` locates its own repo root wherever you drop it, and the target
+  needs no `git` at all):
+  ```bash
+  rsync -av --exclude .venv --exclude .install_state \
+        --exclude node_modules --exclude corpus \
+        <devbox>:/path/to/draw_maps/  ~/draw_maps/
+  ```
+- **Offline single file** (`git bundle`, keeps history):
+  ```bash
+  # on the source machine:
+  git -C /path/to/draw_maps bundle create draw_maps.bundle --all
+  # carry draw_maps.bundle to the box, then:
+  git clone draw_maps.bundle draw_maps && cd draw_maps
+  ```
+
+Only the tracked repo files need to travel (a few MB) — plus the model below.
+`.venv/`, `corpus/`, and `node_modules/` are regenerated or unneeded on the target.
+
+### A.1 Get the model
 
 You need the trained model file **`pipeline/models/wall_student_convnext_tiny.onnx`**
 (122 MB, fp32) — the default ConvNeXt-Tiny student (graph-F1 0.765 @wall_thr 0.5).
@@ -245,7 +267,7 @@ packages, model discovery, the venv + CPU runtime deps, the systemd user
 service, and a self-test (health + a real detection).
 
 ```bash
-git clone <this-repo-url> ~/draw_maps
+# get the code onto the box (clone / rsync / git bundle — see §A.0), then:
 cd ~/draw_maps
 # get the model onto the box (git-ignored, 122 MB — USB / scp / download; §A.1);
 # the installer searches pipeline/models, ~, ~/Downloads, and mounted USB drives.
@@ -294,7 +316,7 @@ hand or tune it.
 
 ```bash
 sudo pacman -S --needed python git glib2 gcc-libs curl   # base + opencv runtime libs
-git clone <this-repo-url> ~/draw_maps
+# get the code onto the box (clone / rsync / git bundle — see §A.0), then:
 cd ~/draw_maps
 python3 -m venv .venv
 .venv/bin/pip install -r pipeline/requirements-service.txt
