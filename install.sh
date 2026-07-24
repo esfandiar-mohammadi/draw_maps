@@ -517,7 +517,19 @@ PY
 # folder and drop the module into <data>/Data/modules/<id>/. Enabling it and
 # picking the world stays a one-time UI click (per-world, and unsafe to poke
 # while Foundry is running) — but the files land in the right place by itself.
-MODULE_ZIP="$REPO/vendor/auto-wall-companion/module.zip"
+# The module package. foundry_module/ is tracked in git (so a fresh clone has
+# it); vendor/auto-wall-companion/ is git-ignored (embedded upstream repo) but
+# present when the tree is rsync'd from a dev box. Prefer whichever exists.
+module_zip_path() {
+  local c
+  for c in "$REPO/foundry_module/auto-wall-companion-ml.zip" \
+           "$REPO/vendor/auto-wall-companion/module.zip" \
+           "$REPO/vendor/auto-wall-companion/awc-ml-2.1.0.zip"; do
+    [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+MODULE_ZIP="$(module_zip_path || echo "$REPO/foundry_module/auto-wall-companion-ml.zip")"
 foundry_data_candidates() {
   # print candidate USER-DATA dirs (the folder that CONTAINS Data/ and Config/)
   [ -n "$FOUNDRY_DATA" ] && printf '%s\n' "$FOUNDRY_DATA"
