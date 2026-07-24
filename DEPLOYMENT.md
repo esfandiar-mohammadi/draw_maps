@@ -5,7 +5,7 @@ Wall documents come out, via a distilled CNN running on ordinary hardware.
 
 ```
 Foundry scene ──"Detect Walls (ML)" button──▶ local companion service ──▶ walls
- (auto-wall-companion module)                  (pipeline/wall_service.py)
+ (wall-annotation-companion module)            (pipeline/wall_service.py)
 ```
 
 ## Quality (in-scope-32 graph-F1, same protocol as the teacher)
@@ -74,17 +74,18 @@ MobileNetV3 ncnn quality is verified identical to its ONNX (graph-F1 0.722 vs
 0.721; wall-mask IoU 0.976). Vulkan latency must be measured on the target (dev
 box has no Vulkan GPU). The ConvNeXt CPU path already meets the one-shot budget,
 so Vulkan is opt-in and trades 0.765→0.722 for GPU speed. Full steps +
-conversion (pnnx) in INSTALL.md §C.6; standalone eval `pipeline/ncnn_eval.py`.
+conversion (pnnx) in README §C.6; standalone eval `pipeline/ncnn_eval.py`.
 
 ## 2. Install the Foundry module
 
 `install.sh` installs the module automatically on a box that runs Foundry
-locally (finds the Foundry data dir; see INSTALL.md §C.2). To do it by hand:
-`vendor/auto-wall-companion/module.zip` (id `auto-wall-companion-ml` v2.1.0;
-rebuild: `npm run build && cd dist && zip -r ../module.zip .`) → extract into
-`<FoundryData>/Data/modules/auto-wall-companion-ml/` (the `-ml` folder name is
-required — the plain `auto-wall-companion` id collides with the archived
-upstream), then enable it in the world.
+locally (finds the Foundry data dir; see README §C.2). To do it by hand:
+extract `foundry_module/wall-annotation-companion.zip` (id
+`wall-annotation-companion` v2.2.0; build source in `vendor/auto-wall-companion/`,
+rebuild with `npm run build`) into
+`<FoundryData>/Data/modules/wall-annotation-companion/`, then enable it in the
+world. (This is a distinct project — do not confuse it with the unrelated
+archived `auto-wall-companion` module on the Foundry registry.)
 
 - A new **"Detect Walls (ML)"** button appears in the Walls scene controls.
 - Set the service URL in module settings (default `http://localhost:8177`).

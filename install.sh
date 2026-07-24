@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
-# install.sh — one-command, fully autonomous installer for the Auto Wall
-# Companion (ML) service on the target box (Arch Linux, Ryzen 3600 / RX 6600).
+# install.sh — one-command, fully autonomous installer for the Wall Annotation
+# Companion service on the target box (Arch Linux, Ryzen 3600 / RX 6600).
 #
 #     bash install.sh
 #
 # That is all. The script:
 #   • figures out what is already installed and skips it,
-#   • finds the model file by itself (repo, ~, ~/Downloads, USB mounts, ...),
+#   • finds the model file by itself (repo, ~, ~/Downloads, USB mounts, ...) and
+#     downloads it from the project host if it isn't present anywhere,
 #   • finds the LOCAL Foundry data folder and installs the module into it
 #     (so a box running Foundry locally needs no manual copy),
 #   • asks for root ONLY when needed — and lets you either type your sudo
@@ -28,13 +29,14 @@
 #   --host ADDR       bind address (default 127.0.0.1)
 #   --threads N       inference threads (default ≈80% of cores → 9 on a 3600)
 #   --model-src PATH  use this model file instead of searching
-#   --model-url URL   download the model from URL if not found locally
+#   --model-url URL   download the model from URL (default: the project host,
+#                     http://mohammadi.eu/dateien/...) if not found locally
 #   --foundry-data D  Foundry user-data dir (the folder containing Data/), if the
 #                     auto-search can't find your local Foundry install
 #   --no-module       do not install the Foundry module (service only)
 #   --vulkan          use the MobileNetV3+ncnn/Vulkan GPU path instead of the
 #                     ConvNeXt/CPU default (RX 6600 via RADV; lower quality
-#                     0.722 vs 0.765 — see INSTALL.md §C.6)
+#                     0.722 vs 0.765 — see README §C.6)
 #   --no-service      do everything except the systemd unit (foreground use)
 #   --status          show what is / is not done, change nothing, exit
 #   --reset           forget all recorded state (verifies still protect you)
@@ -62,7 +64,10 @@ MODEL_NCNN_MINBYTES=10000000
 WALL_THR_ONNX="0.5"                  # ConvNeXt-Tiny operating point
 WALL_THR_NCNN="0.4"                  # MobileNetV3 operating point
 UNIT_NAME="wall-service.service"
-MODULE_ID="auto-wall-companion-ml"   # unique id — NOT plain auto-wall-companion (archived upstream, collides)
+MODULE_ID="wall-annotation-companion"   # our own id (distinct from the archived auto-wall-companion)
+# Default location the ConvNeXt-Tiny model is downloaded from when it isn't
+# found locally (git-ignored, 122 MB). Override with --model-url / --model-src.
+MODEL_DEFAULT_URL="http://mohammadi.eu/dateien/wall_student_convnext_tiny.onnx"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pretty output + logging (everything also lands in .install_state/install.log)
@@ -279,12 +284,24 @@ do_model() {
     model_ok "$tgt" && { ok "using $h"; return 0; }
     warn "candidate failed validation (too small / incomplete) — keeping looking"
   done
-  # 3) download
-  if [ -n "$MODEL_URL" ]; then
-    step "downloading model from $MODEL_URL"
-    curl -fL --retry 3 --max-time 1800 -o "$tgt.part" "$MODEL_URL" \
-      && mv -f "$tgt.part" "$tgt" && model_ok "$tgt" && return 0
-    rm -f "$tgt.part"; fail "download failed or file invalid"; return 1
+  # 3) download — explicit --model-url wins; otherwise the baked-in default
+  #    URL (only for the ConvNeXt/onnx model; the ncnn/--vulkan model isn't hosted there).
+  local url="$MODEL_URL"
+  if [ -z "$url" ] && [ "$VULKAN" -eq 0 ]; then url="$MODEL_DEFAULT_URL"; fi
+  if [ -n "$url" ]; then
+    step "downloading model from $url"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fL --retry 3 --max-time 1800 -o "$tgt.part" "$url"
+    else
+      wget -q -O "$tgt.part" "$url"
+    fi
+    if [ $? -eq 0 ] && mv -f "$tgt.part" "$tgt" 2>/dev/null && model_ok "$tgt"; then
+      ok "downloaded $(basename "$tgt")"; return 0
+    fi
+    rm -f "$tgt.part"
+    fail "download failed or file invalid from: $url"
+    echo "    Provide it another way and re-run:  --model-src /path/to/$base" >&2
+    return 1
   fi
   fail "model '$base' not found anywhere.
     It is NOT in git (too large) and CANNOT be built on this machine (needs a
@@ -390,7 +407,7 @@ UNIT_PATH="$HOME/.config/systemd/user/$UNIT_NAME"
 unit_expected() {
   cat <<EOF
 [Unit]
-Description=Auto Wall Companion (ML) companion service
+Description=Wall Annotation Companion service
 After=network.target
 
 [Service]
@@ -518,18 +535,17 @@ PY
 # picking the world stays a one-time UI click (per-world, and unsafe to poke
 # while Foundry is running) — but the files land in the right place by itself.
 # The module package. foundry_module/ is tracked in git (so a fresh clone has
-# it); vendor/auto-wall-companion/ is git-ignored (embedded upstream repo) but
+# it); vendor/auto-wall-companion/ is git-ignored (embedded source repo) but
 # present when the tree is rsync'd from a dev box. Prefer whichever exists.
 module_zip_path() {
   local c
-  for c in "$REPO/foundry_module/auto-wall-companion-ml.zip" \
-           "$REPO/vendor/auto-wall-companion/module.zip" \
-           "$REPO/vendor/auto-wall-companion/awc-ml-2.1.0.zip"; do
+  for c in "$REPO/foundry_module/wall-annotation-companion.zip" \
+           "$REPO/vendor/auto-wall-companion/module.zip"; do
     [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
   done
   return 1
 }
-MODULE_ZIP="$(module_zip_path || echo "$REPO/foundry_module/auto-wall-companion-ml.zip")"
+MODULE_ZIP="$(module_zip_path || echo "$REPO/foundry_module/wall-annotation-companion.zip")"
 foundry_data_candidates() {
   # print candidate USER-DATA dirs (the folder that CONTAINS Data/ and Config/)
   [ -n "$FOUNDRY_DATA" ] && printf '%s\n' "$FOUNDRY_DATA"
@@ -621,11 +637,15 @@ do_module() {
     "$REPO/.venv/bin/python" -c "import zipfile,sys; zipfile.ZipFile('$MODULE_ZIP').extractall('$target')" \
       || { fail "could not extract module (no unzip, python fallback failed)"; return 1; }
   fi
-  # if a mis-named archived copy exists next to us, warn (it shadows via update)
-  if [ -d "$moddir/auto-wall-companion" ]; then
-    warn "an 'auto-wall-companion' (no -ml) module also exists at $moddir — that is the"
-    warn "archived upstream; disable/remove it in Foundry to avoid the update collision."
-  fi
+  # warn about other copies that could confuse Foundry: the archived upstream,
+  # or an earlier build of ours that used the auto-wall-companion-ml id.
+  local other
+  for other in auto-wall-companion auto-wall-companion-ml; do
+    if [ -d "$moddir/$other" ]; then
+      warn "another module '$other' also exists at $moddir —"
+      warn "disable/remove it in Foundry (Wall Annotation Companion replaces it)."
+    fi
+  done
   remember moduledir "$target"
   ok "module installed → $target"
   # is Foundry running? then it must be restarted to rescan modules.
@@ -678,7 +698,7 @@ fi
 # A re-run walks the same list: healthy steps are skipped in milliseconds,
 # broken ones are repaired, and installation continues from there.
 # ═════════════════════════════════════════════════════════════════════════════
-echo "${C_B}Auto Wall Companion (ML) — autonomous installer${C_0}"
+echo "${C_B}Wall Annotation Companion — autonomous installer${C_0}"
 echo "repo: $REPO    log: $LOGFILE"
 [ "$VULKAN" -eq 1 ] && warn "--vulkan: MobileNetV3+ncnn GPU path (quality 0.722 vs CPU default 0.765)"
 
@@ -720,10 +740,10 @@ if [ -n "$MD" ]; then
   echo "      $MD"
   echo "  Last one-time steps IN FOUNDRY (browser/app, this machine):"
   echo "    1. restart Foundry if it was running (so it rescans modules)"
-  echo "    2. Game Settings → Manage Modules → enable ${C_B}Auto Wall Companion (ML)${C_0} → Save"
+  echo "    2. Game Settings → Manage Modules → enable ${C_B}Wall Annotation Companion${C_0} → Save"
   echo "    3. open a scene, set Scene → Configure → Padding = 0,"
   echo "       pick the Walls tool → ${C_B}Detect Walls (ML)${C_0}. Service URL is preset to the above."
 elif [ "$NO_MODULE" -eq 1 ]; then
-  echo "  Foundry module: skipped. Install it by hand — INSTALL.md Part B —"
+  echo "  Foundry module: skipped. Install it by hand — README Part B —"
   echo "  into  <FoundryUserData>/Data/modules/$MODULE_ID/  and enable it."
 fi
