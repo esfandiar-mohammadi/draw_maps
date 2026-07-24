@@ -88,8 +88,8 @@ python3 -m venv .venv
 .venv/bin/pip install -r pipeline/requirements-service.txt
 ```
 
-This installs only what the service needs (`onnxruntime`, `opencv`, `numpy`) —
-CPU builds, no GPU packages.
+This installs only what the service needs (`onnxruntime`, `opencv`, `numpy`,
+`scikit-image`) — CPU builds, no GPU packages.
 
 ### A.3 Start the service
 
@@ -240,23 +240,40 @@ meets the budget.
 
 ### C.2 Install (Arch) — one command
 
-`tools/deploy_arch.sh` does the whole target-side setup autonomously: pacman
-packages, the venv + CPU runtime deps, the systemd user service, and a self-test
-(health + a real detection). It is idempotent — safe to re-run.
+`install.sh` (repo root) does the whole target-side setup autonomously: pacman
+packages, model discovery, the venv + CPU runtime deps, the systemd user
+service, and a self-test (health + a real detection).
 
 ```bash
 git clone <this-repo-url> ~/draw_maps
 cd ~/draw_maps
-# put the model in place first (it is git-ignored, 122 MB — see §A.1):
-scp devbox:~/draw_maps/pipeline/models/wall_student_convnext_tiny.onnx pipeline/models/
-#   ...or let the script fetch/copy it:  --model-url URL   |   --model-src /path/to.onnx
-bash tools/deploy_arch.sh
+# get the model onto the box (git-ignored, 122 MB — USB / scp / download; §A.1);
+# the installer searches pipeline/models, ~, ~/Downloads, and mounted USB drives.
+bash install.sh
 ```
+
+What makes it safe to just run (and re-run):
+
+- **Resumable state machine.** Every step is recorded in `.install_state/` and
+  RE-VERIFIED on each run: healthy steps are skipped in milliseconds, broken
+  ones (e.g. a venv broken by a system-python upgrade, a deleted model file, a
+  stale unit file after moving the repo) are repaired in place, then the
+  install continues where it left off. `bash install.sh --status` shows the
+  current state without changing anything.
+- **Root only on demand.** When a step needs root it asks interactively: type
+  your sudo password, or pick "I'll run it myself in another terminal" and the
+  script waits, or abort (a later re-run resumes exactly there). Non-interactive
+  runs print the exact `sudo` command and exit resumable.
+- **Self-checking.** Port conflicts auto-advance to the next free port; the
+  model file is validated by size + SHA-256; a wheel-less (too-new) Python
+  falls back to Arch's `python-onnxruntime`/`python-opencv` packages; the final
+  self-test POSTs a real image and requires a wall-detection answer.
 
 Useful flags: `--port N`, `--host ADDR`, `--threads N` (default ~80 % of cores),
 `--vulkan` (MobileNetV3 + ncnn/Vulkan GPU path, §C.6), `--no-service` (skip the
-systemd unit), `--model-url` / `--model-src` (obtain the model). `--help` lists
-all. On success it prints the **Service URL** to paste into the Foundry module.
+systemd unit), `--model-url` / `--model-src` (obtain the model), `--status`,
+`--reset`, `--uninstall`. `--help` lists all. On success it prints the
+**Service URL** to paste into the Foundry module.
 
 The rest of §C explains what the script automates, in case you want to do it by
 hand or tune it.

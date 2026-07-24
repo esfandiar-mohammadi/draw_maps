@@ -25,3 +25,4 @@ corpus/fa_distractors/
 corpus/distill_pl/
 corpus/distill_pl_p1/
 *.data
+.install_state/

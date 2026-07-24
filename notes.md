@@ -1,3 +1,36 @@
+## 2026-07-24 — install.sh: resumable Ein-Kommando-Installer (ersetzt deploy_arch.sh)
+
+User will „nur Install drücken", ungetestbares Zielsystem (Arch x86_64, Kernel 7.1!,
+zsh/Hyprland, Ryzen 3600/RX 6600). **`install.sh` (Repo-Root, `bash install.sh`)**
+= verify-first-State-Machine: jeder Step ist (verify, do)-Paar; bei JEDEM Lauf wird
+von vorn RE-verifiziert (State-File nur Hinweis, nie Wahrheit) → gesunde Steps in ms
+übersprungen, kaputte repariert (= Rewind), dann weiter. `.install_state/` (git-ignored)
++ install.log. Flags: --status/--reset/--uninstall/--vulkan/--port/--host/--threads/
+--model-src/--model-url/--no-service.
+
+**Szenarien abgedeckt:** zsh/sh→bash-Re-Exec; Repo-Discovery; Modell-Suche (~,
+Downloads, USB-Mounts) + SHA256 (Warn bei Retrain); sudo 3-Wege-Menü (Passwort /
+„mach ich selbst im anderen Terminal"+warten / Abbruch) bzw. non-TTY→Befehl+exit 3
+resumable; pacman: stale db.lck, -S→-Syu-Fallback; **Python-zu-neu→Wheels fehlen**
+(Kernel 7.1!) → pip→pip --pre→pacman python-onnxruntime/-opencv/-scikit-image +
+venv --system-site-packages; venv kaputt nach System-Python-Upgrade→Rebuild;
+Port belegt→auto-advance (foreign) bzw. Restart (unser alter Service, /health-
+Modellname geprüft!); Moduswechsel onnx↔vulkan invalidiert running+selftest korrekt;
+systemd --user ohne Session-Bus→nohup-Fallback+Anleitung; Self-Test = echter
+Detection-POST (Corpus-Tile oder synthetisiertes Bild).
+
+**Der Test-Harness fand 4 ECHTE Bugs vor Deploy:** (1) **scikit-image fehlte in
+requirements-service.txt** — graph_infer braucht skeletonize zur Laufzeit; auf
+jungfräulichem Ziel wäre der Service SOFORT gecrasht (Dev-venv hatte es vom Training
+→ nie aufgefallen; via Scratch-Repo+frischem venv gefunden; gefixt + Import-Check im
+Installer). (2) port_free() gab immer true (Return-Wert des exec statt !-Test).
+(3) `set -o pipefail` VOR dem bash-Guard → sh/dash starb vor Re-Exec. (4) --help-
+sed-Range nach Reorder in Code gelaufen. Alles gefixt + regressionsgetestet
+(pacman/loginctl gestubt, Rest ECHT: 11 Szenario-Tests grün, shellcheck sauber).
+deploy_arch.sh gelöscht (superseded), INSTALL.md §A.2/§C.2 aktualisiert.
+
+---
+
 ## 2026-07-23 (spät) — Autonomes Arch-Deploy-Script + Doku-Doublecheck (Deploy morgen)
 
 User: „Modell fertig destilliert für Zielrechner? Doku doublechecken. Dann
