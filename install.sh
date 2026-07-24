@@ -36,7 +36,8 @@
 #   --no-module       do not install the Foundry module (service only)
 #   --vulkan          use the MobileNetV3+ncnn/Vulkan GPU path instead of the
 #                     ConvNeXt/CPU default (RX 6600 via RADV; lower quality
-#                     0.722 vs 0.765 — see README §C.6)
+#                     0.722 vs 0.765 — see DEPLOYMENT.md §1; model files are
+#                     not shipped, provide them via --model-src)
 #   --no-service      do everything except the systemd unit (foreground use)
 #   --status          show what is / is not done, change nothing, exit
 #   --reset           forget all recorded state (verifies still protect you)

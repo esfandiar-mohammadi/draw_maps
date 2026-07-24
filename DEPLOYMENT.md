@@ -73,8 +73,11 @@ RX 6600 via Vulkan/RADV:
 MobileNetV3 ncnn quality is verified identical to its ONNX (graph-F1 0.722 vs
 0.721; wall-mask IoU 0.976). Vulkan latency must be measured on the target (dev
 box has no Vulkan GPU). The ConvNeXt CPU path already meets the one-shot budget,
-so Vulkan is opt-in and trades 0.765→0.722 for GPU speed. Full steps +
-conversion (pnnx) in README §C.6; standalone eval `pipeline/ncnn_eval.py`.
+so Vulkan is opt-in and trades 0.765→0.722 for GPU speed. Regenerate the ncnn
+files from the ONNX with `pnnx`; standalone eval `pipeline/ncnn_eval.py`.
+(This path is deliberately not in the README: the mbv3 model files are not
+shipped with the repo — copy them from the dev box, e.g. via
+`install.sh --vulkan --model-src`.)
 
 ## 2. Install the Foundry module
 

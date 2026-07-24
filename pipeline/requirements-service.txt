@@ -8,5 +8,5 @@ scikit-image>=0.24        # tested 0.26.0 — graph_infer needs skeletonize at r
 # The HTTP server itself uses only the Python stdlib (http.server) — no Flask.
 
 # Optional: faster ROCm-free GPU path on the RX 6600 (gfx1032) via Vulkan/RADV.
-# Only needed for `wall_service.py --backend ncnn --vulkan` (see README.md §C.6).
+# Only needed for `wall_service.py --backend ncnn --vulkan` (see DEPLOYMENT.md §1).
 # ncnn>=1.0.20240102   # bundles Vulkan support in the pip wheel

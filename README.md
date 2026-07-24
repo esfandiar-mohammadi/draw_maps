@@ -44,14 +44,8 @@ specks. The shipped model is a **ConvNeXt-Tiny U-Net (≈32 M params)** distille
 from a much larger DINOv2 ViT-g teacher, so it keeps most of the teacher's
 quality at a fraction of the size and runs comfortably on a CPU.
 
-**Quality** (graph-F1 on a held-out set of 32 in-scope maps, the same metric
-used for the teacher):
-
-| model | params | graph-F1 | CPU latency @1024² |
-|---|---|---|---|
-| DINOv2 ViT-g teacher | 1.1 B | 0.786 | GPU-class |
-| **ConvNeXt-Tiny student — shipped default** | **32 M** | **0.765** | ~1 s desktop · ~2–2.5 s Ryzen 3600 |
-| MobileNetV3-L student — fallback | 6.7 M | 0.741 | ~0.65 s |
+**Quality:** graph-F1 **0.765** on a held-out set of 32 in-scope maps, at
+~1 s per map on a desktop CPU (~2–2.5 s on a Ryzen 3600) at 1024² inference.
 
 It works best on maps with clear built structure — buildings, dungeons, caves,
 towers — the intended scope. Wide-open organic terrain (forests, rivers, open
@@ -148,11 +142,6 @@ To place it yourself, use any of:
       --out  pipeline/models/wall_student_convnext_tiny.onnx
   ```
 
-> **Smaller/faster fallback:** the MobileNetV3-L student
-> (`wall_student_mbv3.onnx`, 26 MB, graph-F1 0.741 **@wall_thr 0.4**) is also
-> available and is the only model with an ncnn/Vulkan GPU path (§C.6). Use it
-> with `--model …mbv3.onnx --wall_thr 0.4`.
-
 ### A.2 Create the Python environment
 
 ```bash
@@ -179,11 +168,11 @@ or directly, with options:
 
 | flag | default | meaning |
 |---|---|---|
-| `--model` | `…convnext_tiny.onnx` | ConvNeXt-Tiny default; `…mbv3.onnx` for the fallback |
+| `--model` | `…convnext_tiny.onnx` | path to the model ONNX |
 | `--port` | `8177` | TCP port the module connects to |
 | `--host` | `127.0.0.1` | bind address (use `0.0.0.0` only for remote Foundry, §B.4) |
 | `--scales` | `1024` | inference resolution(s); single-scale `1024` is the shipped default |
-| `--wall_thr` | `0.5` | wall-probability threshold; **use `0.4` with the MobileNetV3 fallback** |
+| `--wall_thr` | `0.5` | wall-probability threshold (the shipped model's operating point) |
 | `--threads` | CPU count − 2 | CPU threads for inference |
 
 ### A.4 Confirm it works
@@ -301,10 +290,8 @@ RX 6600 8 GB, 16 GB RAM, Arch Linux**, keeping **~20 % of resources free**.
 The RX 6600 is **Navi 23 / gfx1032, which ROCm does not officially support**
 (the `HSA_OVERRIDE_GFX_VERSION=10.3.0` workaround is broken on ROCm ≥ 6.4.3). So
 the service runs **on the CPU via onnxruntime** — nothing to pin, nothing to
-break on a rolling Arch update. Expect **~2–2.5 s per map** single-scale for the
-ConvNeXt-Tiny default on the Ryzen 3600 (the MobileNetV3 fallback is ~1.3 s) —
-fine for a one-shot import. A ROCm-free *GPU* path (ncnn + Vulkan/RADV) exists
-but is **MobileNetV3-only** (§C.6).
+break on a rolling Arch update. Expect **~2–2.5 s per map** single-scale on the
+Ryzen 3600 — fine for a one-shot import.
 
 ### C.2 Install (Arch) — one command
 
@@ -340,8 +327,7 @@ What makes it safe to just run (and re-run):
   unsafe to edit while Foundry runs); the Service URL already defaults correctly.
 
 Useful flags: `--port N`, `--host ADDR`, `--threads N` (default ~80 % of cores),
-`--vulkan` (MobileNetV3 + ncnn/Vulkan GPU path, §C.6), `--no-service` (skip the
-systemd unit), `--no-module` (skip the Foundry-module install),
+`--no-service` (skip the systemd unit), `--no-module` (skip the Foundry-module install),
 `--foundry-data DIR` (Foundry user-data folder if auto-search fails),
 `--model-url` / `--model-src` (obtain the model), `--status`, `--reset`,
 `--uninstall`. `--help` lists all.
@@ -395,33 +381,6 @@ loginctl enable-linger "$USER"                    # keep running without a login
 
 If Foundry runs on this machine, the default Service URL `http://localhost:8177`
 just works — no tunnel. Only use §B.4's tunnel for hosted Foundry.
-
-### C.6 Optional: GPU on the RX 6600 via Vulkan (ncnn, ROCm-free) — MobileNetV3 only
-
-Optional (the CPU path already meets the budget). The RX 6600 can be used without
-ROCm via **ncnn + Vulkan (RADV)** — the same Mesa driver the desktop uses.
-
-> **This path uses the MobileNetV3 fallback, not the ConvNeXt-Tiny default.**
-> pnnx miscompiles the ConvNeXt decoder (a plain 3×3 conv emits `inf` → all-NaN,
-> fp16 *and* fp32), so ConvNeXt-Tiny has no working ncnn/Vulkan build. Vulkan
-> therefore trades quality 0.765 → 0.722 for GPU speed. For 0.765, stay on the
-> ConvNeXt ONNX/CPU default.
-
-Enable it with `bash install.sh --vulkan`, or by hand:
-
-```bash
-sudo pacman -S vulkan-radeon vulkan-icd-loader   # RADV driver for the RX 6600
-.venv/bin/pip install ncnn
-.venv/bin/python pipeline/wall_service.py --backend ncnn --vulkan \
-    --model pipeline/models/wall_student_mbv3.ncnn.param --wall_thr 0.4 --port 8177
-```
-
-The ncnn model files (`wall_student_mbv3.ncnn.param` + `.bin`) ship in the repo,
-or regenerate them from the ONNX with `pnnx`. MobileNetV3 ncnn quality is
-verified identical to its ONNX (graph-F1 0.722; wall-mask IoU 0.976). Vulkan
-*latency* was not benchmarked on real RX 6600 hardware during development — run
-`NCNN_VULKAN=1 .venv/bin/python pipeline/ncnn_eval.py --per_map --wall_thr 0.4`
-on the target to measure it.
 
 ---
 
