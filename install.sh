@@ -199,7 +199,7 @@ verify_sanity() {
 do_sanity() { verify_sanity; }
 
 # ── step 2: pacman packages ──────────────────────────────────────────────────
-PKGS_BASE=(python gcc-libs glib2 curl)          # gcc-libs/glib2: opencv wheel runtime
+PKGS_BASE=(python gcc-libs glib2 curl unzip)    # gcc-libs/glib2: opencv wheel runtime; unzip: module.json read + extract (do_module id-guard/version-check have no fallback)
 PKGS_VULKAN=(vulkan-radeon vulkan-icd-loader)
 pkg_missing() {
   local missing=() p

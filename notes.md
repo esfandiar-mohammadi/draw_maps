@@ -1,3 +1,46 @@
+## 2026-07-24 (spät-3) — Clone-Deploy-E2E aus frischem Ordner: alles Testbare grün; 1 latenter unzip-Bug gefixt
+
+**Auftrag (User):** frischen `git clone` in leeren Ordner, Modell ziehen, gründlich
+durchdenken ob die Installation auf einem FREMDEN Arch-System (dem Zielrechner) läuft.
+
+**Real ausgeführt (auf der Ubuntu-aarch64-Devbox, aus frischem Clone
+`scratchpad/e2e_clone`) — alles grün:**
+1. `git clone` GitHub → self-contained, 2 MB, sauber.
+2. **Modell-Auto-Download vollständig verifiziert:** `http://mohammadi.eu/dateien/
+   wall_student_convnext_tiny.onnx` → 301 auf `https://`; `curl -fL` (install.sh)
+   folgt dem Redirect; 127 818 959 B (121.9 MB); **SHA256 == release-Konstante
+   `461bb18f…2274fe` EXAKT**; ≥100 MB-Guard ok.
+3. **Modul-Zip** `foundry_module/wall-annotation-companion.zip`: id `wall-annotation-
+   companion`, v2.2.0, compat min12/verified14, enthält `scripts/module.js`+
+   `module.json` → matcht MODULE_ID-Guard + `module_installed_ok`.
+4. venv + `pip install -r requirements-service.txt` → alle Wheels lösen sauber
+   (onnxruntime 1.27, opencv-headless 5.0, numpy 2.5, scikit-image 0.26). `verify_
+   pydeps`-Import-Check (onnxruntime/cv2/numpy/skimage.skeletonize) ok.
+5. Service mit EXAKT den Args aus `service_args()` (ONNX-Default) gestartet →
+   `/health` = `{"status":"ok","model":"…convnext_tiny.onnx",…}` (matcht `verify_
+   running`-grep) → `/detect` auf synthetischem Self-Test-Bild = **17 Wände/0.27s**
+   (matcht `do_selftest`-JSON-Parse `count`/`elapsed_s`). Clone hat keine fa_tiles →
+   Self-Test nimmt den synth-Pfad (genau der getestete).
+
+**Nicht real ausführbar hier (Ubuntu, kein pacman/systemd/Vulkan) → statisch geprüft:**
+sanity (pacman-Pflicht = hard-fail hier, auf Arch da; x86_64-Check nur warn),
+pacman-Paketnamen alle offiziell (python/gcc-libs/glib2/curl/unzip/vulkan-radeon/
+vulkan-icd-loader), venv/pip-Fallback-Kette (pip→--pre→Arch-Pakete), systemd-user+
+linger, Foundry-Data-Discovery. Reihenfolge korrekt: pacman VOR model (→ curl da fürs
+Download). Fazit: läuft auf dem Ziel.
+
+**🐞 GEFIXT (latenter Bug, hätte „fully autonomous" auf minimalem Arch gebrochen):**
+`do_module` id-Guard (Z.608) und `module_installed_ok` Versions-Vergleich (Z.593,
+von `verify_module` genutzt) lesen die zip via `unzip -p` OHNE Fallback — während die
+EXTRAKTION (Z.634) einen python-zipfile-Fallback hat. Ohne `unzip` stirbt `do_module`
+am id-Guard, bevor der Fallback greift → Modul-Step (letzter Step) hard-fail. `unzip`
+war NICHT in PKGS_BASE. **Fix: `unzip` zu PKGS_BASE hinzugefügt** (garantiert via
+pacman, läuft vor dem Modul-Step). `bash -n` grün. Niedrige Wahrscheinlichkeit
+(Desktop-Arch hat unzip fast sicher), aber sauber geschlossen. Lokal committet;
+**Push zu GitHub = ask-first (noch offen).**
+
+---
+
 ## 2026-07-24 (spät-2) — Rename → Wall Annotation Companion; README ersetzt INSTALL.md; Modell-Auto-Download; GitHub-Remote live
 
 - **GITHUB-REMOTE (privat):** `https://github.com/esfandiar-mohammadi/draw_maps`
