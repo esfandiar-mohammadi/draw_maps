@@ -349,7 +349,7 @@ systemd unit), `--no-module` (skip the Foundry-module install),
 **Manual equivalent:**
 
 ```bash
-sudo pacman -S --needed python git glib2 gcc-libs curl   # base + opencv runtime libs
+sudo pacman -S --needed python git glib2 gcc-libs curl unzip   # base + opencv runtime libs + module unzip
 git clone https://github.com/esfandiar-mohammadi/draw_maps.git ~/draw_maps && cd ~/draw_maps
 python3 -m venv .venv
 .venv/bin/pip install -r pipeline/requirements-service.txt
