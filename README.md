@@ -346,6 +346,8 @@ Useful flags: `--port N`, `--host ADDR`, `--threads N` (default ~80 % of cores),
 Foundry-module install), `--module-only` (only redo the module part),
 `--foundry-data DIR` (Foundry user-data folder if auto-search fails),
 `--docker-container NAME` (the Foundry container, if auto-detect picks wrong),
+`--serve-module` / `--serve-port N` (hand the module to Foundry's own installer —
+no Docker access and no root needed),
 `--model-url` / `--model-src` (obtain the model), `--status`, `--reset`,
 `--uninstall`. `--help` lists all.
 
@@ -409,7 +411,22 @@ data volume and only the container runtime knows where that is.
 from **your browser**, not from inside the container, so you do *not* have to
 expose the port to the container or change any network setting.
 
-What the installer does:
+**Docker access is not always required.** The installer tries, in order:
+
+1. **No Docker at all — read the container's mount table.**
+   `/proc/<pid>/mountinfo` of the containerized Foundry process is world-readable
+   even though the process belongs to root, and its source field is the *host*
+   path of every volume (a bind mount directly; a named volume as
+   `/var/lib/docker/volumes/<name>/_data`). If that directory is writable by you
+   — the normal case for `-v ~/foundrydata:/data` — the module is installed by a
+   plain file copy: **no Docker group, no sudo, nothing to log out for.**
+2. **Not writable? Ask the runtime** (needs Docker access) and copy through it —
+   see below.
+3. **No Docker access and not writable?** Either root (`sudo`, the installer
+   offers it and hands the files to Foundry's uid afterwards) or
+   **`--serve-module`**, which needs neither: see "Route without Docker" below.
+
+When it does have Docker access:
 
 1. It notices a containerized Foundry even without any Docker access — a Foundry
    process whose cgroup is a container cgroup.
@@ -425,8 +442,32 @@ What the installer does:
 4. Finally it reminds you to `docker restart <container>` so Foundry rescans its
    modules, then you enable the module in the UI (stage 3).
 
-**If you are not allowed to talk to Docker**, the installer stops (exit 4) and
-prints these choices — pick one and re-run:
+#### Route without Docker access *and* without root: let Foundry install it
+
+Foundry's own installer takes a **Manifest URL**, fetches the zip named in the
+manifest's `download` field and unpacks it into its own data folder — as the
+container's own user. So the installer can simply hand the files over:
+
+```bash
+bash install.sh --serve-module          # add --serve-port N to pick the port
+```
+
+It serves the zip plus a manifest patched with a reachable `download`/`manifest`
+URL and prints something like `http://192.168.1.23:8178/module.json`. Paste that
+into Foundry's **Add-on Modules → Install Module**, click Install — the installer
+sees the download in its access log, confirms it, and stops the server. Then
+enable the module in the world as usual.
+
+Notes: the URL deliberately uses a routable host address, because `localhost`
+inside the container is the container itself; if the printed address isn't
+reachable, the command prints alternatives (bridge gateway, and
+`host.docker.internal` for Docker Desktop). This route cannot be verified from
+outside the container, so the installer reports what Foundry fetched rather than
+claiming the files are in place. The manifest field is documented here:
+<https://foundryvtt.com/article/module-development/>.
+
+**If you are not allowed to talk to Docker** *and* the volume isn't writable, the
+installer stops (exit 4) and prints these choices — pick one and re-run:
 
 ```bash
 # A) grant yourself Docker access (recommended, one time)
@@ -441,7 +482,10 @@ sudo -v && bash install.sh
 # C) skip Docker entirely: name the host directory that is mounted as /data
 bash install.sh --foundry-data /host/path/to/foundrydata
 
-# D) service only now, module later
+# D) let Foundry install it itself — needs neither Docker nor root
+bash install.sh --serve-module
+
+# E) service only now, module later
 bash install.sh --no-module
 ```
 
@@ -451,9 +495,15 @@ Name it: `bash install.sh --module-only --docker-container my-foundry`.
 Uninstall is container-aware: `bash install.sh --uninstall` removes the module
 *inside* the container and never touches host paths.
 
-Verified with real containers (named volume, writable bind mount, bind mount
-owned by uid 421, no-Docker-access pause, resume, uninstall):
-`tools/test_install_module.sh` — 51 assertions, all green.
+Verified with real containers, two suites, all green:
+- `tools/test_install_module.sh` (51 assertions) — named volume, writable bind
+  mount, bind mount owned by uid 421, outdated copy replaced, no-access pause,
+  resume, uninstall, `--foundry-data`, `--status`.
+- `tools/test_install_nodocker.sh` (22 assertions) — with a `docker` CLI stubbed
+  to fail like a socket-permission denial: host-path discovery via
+  `/proc/<pid>/mountinfo`, the named-volume pause, and the full `--serve-module`
+  hand-off (patched manifest, routable URL, download detected) with `curl`
+  standing in for Foundry.
 
 ---
 

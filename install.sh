@@ -45,6 +45,11 @@
 #   --service-only    alias for --no-module (stage 1 only)
 #   --module-only     only (re)install the Foundry module, touch nothing else
 #                     (useful after you granted yourself Docker access)
+#   --serve-module    serve the module over HTTP and print a Manifest URL, so
+#                     FOUNDRY ITSELF installs it (Add-on Modules → Install
+#                     Module). Needs neither Docker access nor root — the way in
+#                     when Foundry runs in a container you may not touch.
+#   --serve-port N    port for --serve-module (default 8178, auto-advances)
 #   --vulkan          use the MobileNetV3+ncnn/Vulkan GPU path instead of the
 #                     ConvNeXt/CPU default (RX 6600 via RADV; lower quality
 #                     0.722 vs 0.765 — see DEPLOYMENT.md §1; model files are
@@ -104,6 +109,7 @@ run_logged() { _log "RUN   $*"; "$@" >>"${LOGFILE:-/dev/null}" 2>&1; }
 PORT_PREF=8177; HOST=127.0.0.1; THREADS=""; MODEL_SRC=""; MODEL_URL=""
 VULKAN=0; NO_SERVICE=0; DO_STATUS=0; DO_RESET=0; DO_UNINSTALL=0
 NO_MODULE=0; FOUNDRY_DATA=""; FOUNDRY_CONTAINER=""; MODULE_ONLY=0
+DO_SERVE=0; SERVE_PORT=8178
 while [ $# -gt 0 ]; do
   case "$1" in
     --port)      PORT_PREF="$2"; shift 2;;
@@ -115,6 +121,8 @@ while [ $# -gt 0 ]; do
     --docker-container) FOUNDRY_CONTAINER="$2"; shift 2;;
     --no-module|--service-only) NO_MODULE=1; shift;;
     --module-only) MODULE_ONLY=1; shift;;
+    --serve-module) DO_SERVE=1; shift;;
+    --serve-port) SERVE_PORT="$2"; shift 2;;
     --vulkan)    VULKAN=1; shift;;
     --no-service) NO_SERVICE=1; shift;;
     --status)    DO_STATUS=1; shift;;
@@ -291,14 +299,147 @@ docker_access_gate() {   # certain: Foundry is containerized, runtime unreachabl
     "     That is the directory containing Data/ and Config/ — the host side of" \
     "     your  -v /host/path/to/foundrydata:/data  mount (see your compose file)." \
     "" \
-    "  ${C_B}D) install the service only and copy the module by hand later${C_0}" \
+    "  ${C_B}D) let FOUNDRY ITSELF install it — needs neither $rt nor root${C_0}" \
+    "       bash install.sh --serve-module" \
+    "     That serves the module over HTTP and prints a Manifest URL; you paste it" \
+    "     into Foundry's ${C_B}Add-on Modules → Install Module${C_0} and Foundry (inside the" \
+    "     container) downloads it into its own data folder." \
+    "" \
+    "  ${C_B}E) install the service only and copy the module by hand later${C_0}" \
     "       bash install.sh --no-module" \
     "     Then unzip ${MODULE_ZIP:-foundry_module/*.zip} into" \
     "       <foundrydata>/Data/modules/$MODULE_ID/"
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LAST-RESORT ROUTE, needs neither container access nor root: let Foundry
+# install the module itself. Foundry's "Install Module" takes a manifest URL,
+# downloads the zip named in the manifest's `download` field and unpacks it into
+# its own data folder — as the container's own user.
+#   https://foundryvtt.com/article/module-development/  ("download": "A public
+#   URL that provides a zip archive ... retrieved during the installation or
+#   update process")
+# So we serve zip + a patched manifest from the host and print the URL.
+# ─────────────────────────────────────────────────────────────────────────────
+host_addresses() {   # addresses a container can plausibly reach the host on
+  ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+  ip -4 -o addr show dev docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1   # bridge gateway
+  ip -4 -o addr show dev podman0 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+}
+serve_module_mode() {
+  [ -f "$MODULE_ZIP" ] || die "module package missing: $MODULE_ZIP"
+  local py=""
+  for c in "$REPO/.venv/bin/python" python3; do
+    if [ -x "$c" ] || command -v "$c" >/dev/null 2>&1; then py="$c"; break; fi
+  done
+  [ -n "$py" ] || die "need python3 to serve the module"
+
+  local port="$SERVE_PORT" tries=0
+  while ! port_free "$port"; do
+    port=$((port+1)); tries=$((tries+1)); [ "$tries" -gt 20 ] && die "no free port near $SERVE_PORT"
+  done
+  local dir="$STATE/serve"; rm -rf "$dir"; mkdir -p "$dir"
+  local zipname="$MODULE_ID.zip"
+  cp -f "$MODULE_ZIP" "$dir/$zipname"
+
+  # the URL Foundry must use — it is resolved INSIDE the container, so localhost
+  # is wrong there; offer the host's routable addresses instead.
+  local addr addrs=() a
+  while IFS= read -r a; do [ -n "$a" ] && addrs+=("$a"); done < <(host_addresses)
+  [ "${#addrs[@]}" -gt 0 ] || addrs=("127.0.0.1")
+  addr="${addrs[0]}"
+  local base="http://$addr:$port"
+  zip_module_json | "$py" -c '
+import json,sys
+m=json.load(sys.stdin); base=sys.argv[1]; zipname=sys.argv[2]
+m["download"]=f"{base}/{zipname}"        # where Foundry fetches the archive
+m["manifest"]=f"{base}/module.json"      # where it looks for updates
+json.dump(m,open(sys.argv[3],"w"),indent=2)
+' "$base" "$zipname" "$dir/module.json" || die "could not write the patched manifest"
+
+  step "serving the module for Foundry to install itself"
+  ok "no Docker access and no root needed for this route"
+  echo
+  echo "  ${C_B}1.${C_0} In Foundry: ${C_B}Add-on Modules → Install Module${C_0}, paste this Manifest URL:"
+  echo
+  echo "        ${C_C}${C_B}$base/module.json${C_0}"
+  echo
+  if [ "${#addrs[@]}" -gt 1 ]; then
+    echo "     If the container cannot reach that address, try one of these instead:"
+    for a in "${addrs[@]:1}"; do echo "        http://$a:$port/module.json"; done
+    echo "     (Docker Desktop also offers  http://host.docker.internal:$port/module.json )"
+    echo
+  fi
+  echo "  ${C_B}2.${C_0} Click Install. Foundry downloads the zip and unpacks it into its own"
+  echo "     data folder — inside the container, as the container's own user."
+  echo "  ${C_B}3.${C_0} Then: Game Settings → Manage Modules → enable ${C_B}Wall Annotation Companion${C_0}."
+  echo
+  echo "  Waiting for Foundry to fetch it… (Ctrl-C to stop; the service install is"
+  echo "  unaffected — this only serves files)"
+  echo
+  local log="$STATE/serve.log"; : > "$log"
+  "$py" -m http.server --bind 0.0.0.0 --directory "$dir" "$port" >>"$log" 2>&1 &
+  local srv=$!
+  # shellcheck disable=SC2064
+  trap "kill $srv 2>/dev/null" EXIT INT TERM
+  local got_manifest=0 _i
+  for _i in $(seq 1 3600); do          # up to 30 min
+    kill -0 "$srv" 2>/dev/null || { fail "the HTTP server died — see $log"; return 1; }
+    if [ "$got_manifest" -eq 0 ] && grep -q "GET /module.json" "$log" 2>/dev/null; then
+      got_manifest=1; ok "Foundry fetched the manifest"
+    fi
+    if grep -q "GET /$zipname" "$log" 2>/dev/null; then
+      ok "Foundry downloaded the module archive — installation done on its side"
+      kill "$srv" 2>/dev/null
+      echo
+      echo "  Check ${C_B}Add-on Modules${C_0}: 'Wall Annotation Companion' $(zip_version | sed 's/.*: *//') should be listed."
+      echo "  Then enable it in the world: Game Settings → Manage Modules → Save."
+      echo "  (This installer cannot verify inside the container without Docker access,"
+      echo "   so it trusts Foundry's own download here.)"
+      return 0
+    fi
+    sleep 0.5
+  done
+  warn "nothing fetched within 30 minutes — stopping the server"
+  kill "$srv" 2>/dev/null
+  return 1
+}
+
 # process-list evidence, works WITHOUT any runtime access ─────────────────────
 pid_in_container() { grep -qE '[:/](docker|libpod|containerd|kubepods)' "/proc/$1/cgroup" 2>/dev/null; }
+
+# The host path of a container's volume WITHOUT asking the runtime:
+# /proc/<pid>/mountinfo is world-readable even for a root-owned container
+# process, and its 4th field is the source path of every mount — for a bind
+# mount that IS the host directory, for a named volume it is
+# /var/lib/docker/volumes/<name>/_data. Field 4 is relative to the root of the
+# source filesystem, so if that filesystem is mounted elsewhere on the host we
+# map it through the matching device (field 3) in our own mount table. Every
+# candidate is validated later by looking for Data/ in it, so a wrong guess
+# simply loses.
+mount_src_candidates() {   # <maj:min> <src-root> → plausible host paths
+  printf '%s\n' "$2"
+  local mm root mp rel
+  while read -r _ _ mm root mp _; do
+    [ "$mm" = "$1" ] || continue
+    [ "$root" = "/" ] && { printf '%s\n' "${mp%/}$2"; continue; }
+    case "$2" in "$root"/*|"$root") rel="${2#"$root"}"; printf '%s\n' "${mp%/}/${rel#/}";; esac
+  done < /proc/self/mountinfo
+}
+container_volume_hostpaths() {   # → host dirs that may be Foundry user data
+  local pid rest mm root mp
+  while read -r pid rest; do
+    case "$pid" in ''|*[!0-9]*) continue;; esac
+    pid_in_container "$pid" || continue
+    [ -r "/proc/$pid/mountinfo" ] || continue
+    while read -r _ _ mm root mp _; do
+      [ -n "${mp:-}" ] || continue
+      [ "$root" = "/" ] && continue          # the container's own rootfs
+      case "$root" in */containers/*/hostname|*/hosts|*/resolv.conf) continue;; esac
+      mount_src_candidates "$mm" "$root"
+    done < "/proc/$pid/mountinfo"
+  done < <(pgrep -af 'resources/app/main.js|foundryvtt|main\.mjs' 2>/dev/null)
+}
 FOUNDRY_PROC_MODE=""   # "" none seen | host | container
 foundry_process_scan() {   # sets FOUNDRY_PROC_MODE, prints HOST-side --dataPath values
   local pid rest dp
@@ -699,6 +840,9 @@ foundry_data_candidates() {
     dp=$(grep -oE '"dataPath"[^,}]*' "$cfg" | head -1 | sed -E 's/.*"dataPath" *: *"([^"]*)".*/\1/')
     [ -n "$dp" ] && printf '%s\n' "${dp%/}"
   done
+  # 2b) a CONTAINERIZED Foundry's volume, read out of the container process's
+  #     mount table — needs no Docker access at all (see §C.6 in the README)
+  container_volume_hostpaths
   # 3) common default locations
   printf '%s\n' "$HOME/.local/share/FoundryVTT" "$HOME/FoundryVTT" \
                 "$HOME/foundrydata" "$HOME/foundryuserdata" \
@@ -708,8 +852,18 @@ foundry_data_candidates() {
   while IFS= read -r d; do printf '%s\n' "$(cd "$d/../.." && pwd)"; done \
     < <(find "$HOME" -maxdepth 5 -type d -name modules -path "*/Data/modules" 2>/dev/null | head -5)
 }
-foundry_modules_dir() {  # echo the first candidate that looks like a real Foundry data dir
+foundry_modules_dir() {  # echo the best candidate that looks like a real Foundry data dir
+  # Two passes, because several candidates can exist (e.g. more than one
+  # container with a /data volume): first insist on a dir that really looks like
+  # Foundry user data (modules + worlds/systems/Config), only then fall back to
+  # the loose test. Otherwise an unrelated container's volume could win.
   local c
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    if [ -d "$c/Data/modules" ] && { [ -d "$c/Data/worlds" ] || [ -d "$c/Data/systems" ] || [ -d "$c/Config" ]; }; then
+      printf '%s\n' "$c/Data/modules"; return 0
+    fi
+  done < <(foundry_data_candidates)
   while IFS= read -r c; do
     [ -n "$c" ] || continue
     if [ -d "$c/Data" ] || [ -d "$c/Data/worlds" ] || [ -d "$c/Data/systems" ]; then
@@ -810,10 +964,15 @@ do_foundry() {
   #     scan the process list HERE (not inside the candidate generator, which
   #     runs in a subshell) so FOUNDRY_PROC_MODE survives for step (c).
   foundry_process_scan >/dev/null
-  local md; md="$(foundry_modules_dir || true)"
-  if [ -n "$md" ]; then
+  local md md_ro=""; md="$(foundry_modules_dir || true)"
+  if [ -n "$md" ] && [ -w "$md" ]; then
     remember modmode host; remember modparent "$md"; remember cdata ""; remember container ""
-    ok "local Foundry data found → $md"; return 0
+    ok "Foundry data found and writable → $md"; return 0
+  fi
+  if [ -n "$md" ]; then
+    md_ro="$md"        # found, but owned by someone else (Foundry's own uid?)
+    ok "Foundry data found → $md"
+    warn "but $(id -un) may not write there — looking for a route that needs no root"
   fi
 
   # (c) containerized?
@@ -828,9 +987,15 @@ do_foundry() {
       cri_unlock || true
     fi
     if ! cri_probe; then
-      # runtime installed but unreachable. If we KNOW Foundry is containerized
-      # this is the blocker → pause with instructions. If we were only guessing,
-      # fall through to asking/skipping.
+      # runtime installed but unreachable. If we already know the volume's host
+      # path (read out of the container's mount table) we do not need Docker at
+      # all — root can write there. Otherwise: pause with instructions.
+      if [ -n "$md_ro" ]; then
+        remember modmode host; remember modparent "$md_ro"; remember cdata ""; remember container ""
+        warn "no Docker access — will write to $md_ro as root instead"
+        warn "prefer not to use sudo? abort and run:  bash install.sh --serve-module"
+        return 0
+      fi
       [ "$certain" -eq 1 ] && docker_access_gate
     else
       if foundry_container_find; then
@@ -1037,6 +1202,11 @@ do_module() {
 # ═════════════════════════════════════════════════════════════════════════════
 # Special modes
 # ═════════════════════════════════════════════════════════════════════════════
+if [ "$DO_SERVE" -eq 1 ]; then
+  echo "${C_B}Wall Annotation Companion — module hand-off to Foundry${C_0}"
+  serve_module_mode; exit $?
+fi
+
 if [ "$DO_UNINSTALL" -eq 1 ]; then
   step "uninstalling the service"
   systemctl --user disable --now "$UNIT_NAME" 2>/dev/null && ok "unit stopped+disabled" || true

@@ -1,3 +1,58 @@
+## 2026-07-31 (später) — Modul-Install OHNE Docker-Zugriff: /proc-Mount-Discovery + `--serve-module` (Foundry installiert selbst)
+
+**User-Frage:** „Kannst du das Foundry-Modul auch OHNE Zugriff auf den Docker
+installieren, wenn Foundry im Docker läuft?" → Antwort: **ja, in den meisten
+Fällen sogar ganz ohne Docker UND ohne root.** Zwei neue Wege, beide gebaut+getestet.
+
+**(1) Host-Pfad des Volumes aus dem Container-Prozess lesen — 0 Docker nötig.**
+EMPIRISCH VERIFIZIERT auf dieser Box: `/proc/<pid>/mountinfo` eines
+**root-eigenen** Container-Prozesses ist world-readable (`-r--r--r--`), und Feld 4
+ist die Quelle jedes Mounts:
+- Bind-Mount → direkt der Host-Pfad (`/tmp/x/fdata`)
+- Named Volume → `/var/lib/docker/volumes/<name>/_data`
+Neu: `container_volume_hostpaths()` + `mount_src_candidates()` (mappt Feld-4-Pfade
+über maj:min gegen `/proc/self/mountinfo`, falls die Quell-FS anderswo gemountet
+ist). Kandidaten fließen in `foundry_data_candidates` → wenn das Verzeichnis für
+den User **schreibbar** ist (Normalfall `-v ~/foundrydata:/data`), wird das Modul
+per simpler Dateikopie installiert: kein docker-Gruppe, kein sudo, kein Re-Login.
+`foundry_modules_dir` jetzt **zweistufig** (erst „sieht wirklich wie Foundry-Data
+aus": Data/modules + worlds|systems|Config, dann lockere Regel) — sonst konnte
+das Volume eines FREMDEN Containers gewinnen (real passiert: mein eigener
+Probe-Container hat N1/N2 zunächst gekapert → Testumgebung, aber der Fix ist echt).
+
+**(2) `--serve-module`: Foundry installiert das Modul SELBST — weder Docker noch root.**
+Foundrys „Add-on Modules → Install Module" nimmt eine **Manifest-URL**, lädt das
+im Manifest-Feld `download` genannte Zip und entpackt es in seinen eigenen
+Data-Ordner — als Container-User. Also: Installer serviert Zip + gepatchtes
+module.json (`download` + `manifest` auf eine erreichbare Host-Adresse), druckt
+die URL, und **erkennt am HTTP-Access-Log**, wann Foundry Manifest und Zip geholt
+hat („Foundry downloaded the module archive"), dann Server-Stop. Wichtig:
+NICHT `localhost` anbieten (im Container ist das der Container selbst) → routbare
+Host-Adressen (`ip -4 -o addr`, docker0/podman0-Gateway, Hinweis auf
+host.docker.internal). Manifest-Feld belegt: foundryvtt.com/article/module-development
+(„download: A public URL that provides a zip archive … retrieved during the
+installation or update process"). **Grenze, ehrlich:** dieser Weg ist von außen
+nicht verifizierbar (kein Container-Zugriff) → Installer behauptet nicht „liegt
+drin", sondern berichtet, was Foundry geholt hat. Mit einem ECHTEN, lizenzierten
+Foundry-Image ist die UI-Seite nie getestet worden (Image ist gated).
+
+**Route-Reihenfolge jetzt:** Host-Pfad schreibbar → Dateikopie · sonst Runtime
+erreichbar → `docker cp` · sonst Host-Pfad bekannt aber nicht schreibbar → root
+(sudo; Hinweis auf `--serve-module` als sudo-freie Alternative) · sonst Pause-Gate
+mit 5 Optionen (A usermod+Re-Login, B `sudo -v`, C `--foundry-data`,
+**D `--serve-module`**, E `--no-module`).
+
+**Verifikation:** neu `tools/test_install_nodocker.sh` — **22 Assertions, alle
+grün**, mit PATH-Stub, der `docker` wie „permission denied on socket" scheitern
+lässt, bei ECHT laufendem Container: N1 Bind-Mount (mir gehörend) → Installation
+ohne Docker/root, Dateien real da; N2 Named Volume (nur root) → Pause exit 4 +
+`--serve-module` angeboten; N3 `--serve-module` → Manifest gepatcht+erreichbar
+(nicht localhost), Zip ladbar, Download erkannt, Server sauber beendet (curl
+spielt Foundry). Regression: `tools/test_install_module.sh` weiter **51/51 grün**.
+shellcheck sauber (nur vorbestehendes SC2024), `bash -n` grün.
+
+---
+
 ## 2026-07-31 — install.sh: Foundry-in-DOCKER support + echter Multi-Step-Handshake (User-Report: Installer scheiterte am Docker-Zugriff)
 
 **User-Report vom Ziel-Arch-Rechner:** `bash install.sh` lief NICHT durch; u.a.
