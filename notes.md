@@ -42,13 +42,25 @@ erreichbar → `docker cp` · sonst Host-Pfad bekannt aber nicht schreibbar → 
 mit 5 Optionen (A usermod+Re-Login, B `sudo -v`, C `--foundry-data`,
 **D `--serve-module`**, E `--no-module`).
 
-**Verifikation:** neu `tools/test_install_nodocker.sh` — **22 Assertions, alle
+**User-Warnung beachtet (2026-07-31):** auf DIESER Box bin ich in der docker-
+Gruppe, auf dem ZIEL evtl. nicht → alle „grünen" docker-cp-Tests sind mit Zugriff
+gelaufen und sagen nichts über das Ziel. Belastbar für den Ziel-Fall ist NUR die
+Stub-Suite (docker scheitert wie „permission denied on socket"). Daraus drei Fixes:
+(a) der Heads-up am Anfang behauptete „stage 2 will ask you for one action", obwohl
+die neue /proc-Route oft ohne alles durchläuft → jetzt nur noch, wenn Volume
+NICHT schreibbar UND Runtime unerreichbar (sonst still); (b) sudo-Eskalation nennt
+`--serve-module` als privilegienfreie Alternative; (c) interaktiver Prompt und
+Skip-Zweig nennen `--serve-module` ebenfalls.
+
+**Verifikation:** neu `tools/test_install_nodocker.sh` — **25 Assertions, alle
 grün**, mit PATH-Stub, der `docker` wie „permission denied on socket" scheitern
 lässt, bei ECHT laufendem Container: N1 Bind-Mount (mir gehörend) → Installation
 ohne Docker/root, Dateien real da; N2 Named Volume (nur root) → Pause exit 4 +
 `--serve-module` angeboten; N3 `--serve-module` → Manifest gepatcht+erreichbar
 (nicht localhost), Zip ladbar, Download erkannt, Server sauber beendet (curl
-spielt Foundry). Regression: `tools/test_install_module.sh` weiter **51/51 grün**.
+spielt Foundry); N4 gar nichts erkennbar (kein Zugriff, kein sichtbarer Container)
+→ Skip mit Rezept + `--serve-module`, exit 0 (Service-Install darf daran nicht
+scheitern). Regression: `tools/test_install_module.sh` weiter **51/51 grün**.
 shellcheck sauber (nur vorbestehendes SC2024), `bash -n` grün.
 
 ---

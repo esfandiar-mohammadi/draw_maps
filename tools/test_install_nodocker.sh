@@ -96,5 +96,15 @@ chk "detected the zip download"       "grep -q 'downloaded the module archive' $
 chk "exited 0 after the hand-off"     "[ $rc3 -eq 0 ]"
 chk "http server stopped"             "! (exec 3<>/dev/tcp/127.0.0.1/8391) 2>/dev/null"
 
+# ═══ N4: no docker access AND no detectable container → skip with the recipe ══
+say "N4  nothing detectable (no docker access, no visible Foundry) → skip + recipe"
+docker rm -f wac-nd-vol >/dev/null 2>&1; sleep 1
+R4="$(mkrepo r4)"
+out4="$(cd "$R4" && PATH="$T/stub:$PATH" bash install.sh --module-only 2>&1)"; rc4=$?
+echo "$out4" | grep -E '✓|✗|!' | sed 's/^/    | /'
+chk "exit 0 (service install must not fail over this)" "[ $rc4 -eq 0 ]"
+chk "offers --serve-module as the no-privilege route"  "echo \"\$out4\" | grep -q -- '--serve-module'"
+chk "offers the manual unzip route"                    "echo \"\$out4\" | grep -q 'unzip'"
+
 printf '\n\033[1m== %d passed, %d failed ==\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

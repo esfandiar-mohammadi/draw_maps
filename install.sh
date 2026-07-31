@@ -1042,7 +1042,9 @@ do_foundry() {
   if [ -t 0 ] && [ -t 1 ]; then
     echo "  Could not locate Foundry's user-data folder automatically."
     echo "  In Foundry it is shown at ${C_C}Setup → Configuration → \"User Data Path\"${C_0}."
-    echo "  (Foundry in Docker? give the HOST directory mounted as /data.)"
+    echo "  (Foundry in Docker? give the HOST directory mounted as /data — or leave"
+    echo "   this blank and use  bash install.sh --serve-module  instead, which lets"
+    echo "   Foundry install the module itself and needs no paths at all.)"
     local ans; read -r -p "  Paste it here (or leave blank to skip the module): " ans
     if [ -n "$ans" ]; then
       ans="${ans%/}"
@@ -1060,6 +1062,8 @@ do_foundry() {
   warn "do it by hand: unzip $MODULE_ZIP into <FoundryData>/Data/modules/$MODULE_ID/"
   warn "or re-run with:  bash install.sh --module-only --foundry-data /path/to/FoundryUserData"
   warn "Foundry in Docker:  bash install.sh --module-only --docker-container NAME"
+  warn "no access to the container (and no root)? let Foundry install it itself:"
+  warn "    bash install.sh --serve-module"
   NO_MODULE=1
   return 0
 }
@@ -1113,6 +1117,7 @@ module_install_host() {  # <modules dir>
     # owned by Foundry's own uid → write as root, then hand the files over to
     # whoever owns the modules directory, so Foundry can still read them.
     warn "$moddir is not writable by $(id -un) — installing as root"
+    warn "(no root available / rather not? abort and run: bash install.sh --serve-module)"
     run_root "create the module directory $target" mkdir -p "$target" \
       || { rm -rf "$stage"; fail "cannot create $target even as root"; return 1; }
     run_root "copy the module files into $target" cp -aT "$stage/$MODULE_ID" "$target" \
@@ -1299,12 +1304,20 @@ echo "    ${C_B}3${C_0}  enable it inside Foundry  — you, two clicks, once (pr
 # need a manual action, say it now so it can be done in parallel.
 if [ "$NO_MODULE" -eq 0 ] && [ "$MODULE_ONLY" -eq 0 ] && [ -z "$FOUNDRY_DATA" ]; then
   foundry_process_scan >/dev/null
-  if [ "$FOUNDRY_PROC_MODE" = "container" ] && ! cri_probe; then
-    echo
-    warn "heads-up: Foundry runs in a container here, and this account cannot talk"
-    warn "to the container runtime — stage 2 will ask you for one action. You can"
-    warn "already do it now in another terminal, it saves a re-run:"
-    warn "    sudo usermod -aG docker $(id -un)     # then log out and back in"
+  if [ "$FOUNDRY_PROC_MODE" = "container" ]; then
+    _hu_md="$(foundry_modules_dir 2>/dev/null || true)"
+    if [ -n "$_hu_md" ] && [ -w "$_hu_md" ]; then
+      : # the volume is reachable and writable → stage 2 needs nothing from you
+    elif ! cri_probe; then
+      echo
+      warn "heads-up: Foundry runs in a container here and this account can neither"
+      warn "talk to the container runtime nor write to its volume — stage 2 will ask"
+      warn "you to choose. You can prepare the quickest option now, in another"
+      warn "terminal (saves one re-run):"
+      warn "    sudo usermod -aG docker $(id -un)     # then log out and back in"
+      warn "…or plan for the route that needs no privileges at all:"
+      warn "    bash install.sh --serve-module        # Foundry installs it itself"
+    fi
   fi
 fi
 echo

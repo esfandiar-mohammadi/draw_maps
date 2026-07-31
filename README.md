@@ -499,11 +499,16 @@ Verified with real containers, two suites, all green:
 - `tools/test_install_module.sh` (51 assertions) — named volume, writable bind
   mount, bind mount owned by uid 421, outdated copy replaced, no-access pause,
   resume, uninstall, `--foundry-data`, `--status`.
-- `tools/test_install_nodocker.sh` (22 assertions) — with a `docker` CLI stubbed
+- `tools/test_install_nodocker.sh` (25 assertions) — with a `docker` CLI stubbed
   to fail like a socket-permission denial: host-path discovery via
   `/proc/<pid>/mountinfo`, the named-volume pause, and the full `--serve-module`
   hand-off (patched manifest, routable URL, download detected) with `curl`
-  standing in for Foundry.
+  standing in for Foundry, plus the nothing-detectable case (skip, never fail).
+
+Note on the evidence: the dev box's account *is* in the `docker` group, so the
+`docker cp` route was tested with access. The target may not have it — which is
+why the no-access routes are tested with the runtime stubbed to fail exactly like
+a socket-permission denial, not merely reasoned about.
 
 ---
 
