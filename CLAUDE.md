@@ -26,7 +26,9 @@
 > Port-Expose/Tunnel nötig (README §C.6).
 > **▶️ OFFEN: der User meldete „One error was …" → es gab MEHRERE Fehler; nur der
 > Docker-Fehler ist gefixt. Vom Ziel gebraucht: `~/draw_maps/.install_state/install.log`
-> bzw. Terminal-Ausgabe.** Push zu GitHub = ask-first (noch nicht gepusht).
+> bzw. Terminal-Ausgabe.** Docker-Fix ist gepusht (4d62c0a). **Push/Pull auf das
+> PRIVATE Remote ist ab jetzt vor-autorisiert — nicht mehr fragen**
+> [[git-push-preauthorized]]; nur Öffentliches bleibt ask-first.
 > pacman/systemd/Vulkan/echtes root laufen auf der Ubuntu-aarch64-Devbox weiter NICHT.
 >
 > **── Deployment-Fakten (weiter gültig) ──**
@@ -452,7 +454,12 @@ manage own background processes, initialize/commit to the LOCAL git repo,
 update `notes.md`/`MEMORY.md`, fix bugs discovered during verification (fix,
 verify, mention in the report).
 
-**Ask first, always:** publishing anything (GitHub push to a public remote,
+**Pre-authorized (user, 2026-07-31), do NOT ask:** `git push` / `git pull` against
+the **private** remote `esfandiar-mohammadi/draw_maps` — after committing work the
+user wants shipped, push it and report the hash. Anything PUBLIC (public remote,
+Foundry package registry, forum posts, making the repo public) stays ask-first.
+
+**Ask first, always:** publishing anything public (a public remote, the
 Foundry package registry, forum posts); deleting files you did not create;
 anything that modifies a real Foundry user-data world outside the dedicated
 test world; expanding scope beyond the request (propose it in the report
