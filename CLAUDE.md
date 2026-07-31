@@ -12,10 +12,22 @@
 > Modell automatisch von http://mohammadi.eu/dateien/wall_student_convnext_tiny.onnx,
 > baut venv, systemd-Service, installiert das Foundry-Modul LOKAL (findet Foundry-
 > Data-Dir selbst), self-test. Details: notes.md TOP-Eintrag.
-> **▶️ EINZIG OFFEN: der echte `bash install.sh`-Lauf auf dem Arch-Ziel** (Ryzen3600/
-> RX6600, Foundry lokal). pacman/systemd/Vulkan konnten auf der Ubuntu-aarch64-Devbox
-> NIE real laufen (alles andere gestubt+getestet). Bei „continue" ohne neue Anweisung:
-> User fragen, ob Ziel-Lauf ansteht oder optionale Kür (ConvNeXt-Small etc.).
+> **🆕 2026-07-31: ERSTER ECHTER ZIEL-LAUF FAND STATT UND SCHEITERTE.** Das Ziel
+> fährt **Foundry in DOCKER** — der Installer kannte Container gar nicht (nur nativ-
+> lokale Pfade) → „keine Rechte auf das Foundry-Docker". **Gefixt + getestet**
+> (install.sh: neuer Step `foundry` host-vs-docker, `docker cp`-Route mit chown auf
+> die Container-uid ohne sudo, Container-Erkennung via `/proc/<pid>/cgroup` OHNE
+> Docker-Zugriff, `need_user_action()`-Pause (exit 4) mit `usermod -aG docker` +
+> „aus- und wieder einloggen", 3 sichtbare Stages, `--module-only`/`--service-only`/
+> `--docker-container`, container-sicheres `--uninstall`). Regressionstest
+> `tools/test_install_module.sh` = 51 Assertions mit ECHTEN Containern, alle grün.
+> Details: notes.md TOP-Eintrag; [[foundry-in-docker-on-target]]. Merke: das Modul
+> ruft den Service aus dem **Browser** → `localhost:8177` bleibt korrekt, kein
+> Port-Expose/Tunnel nötig (README §C.6).
+> **▶️ OFFEN: der User meldete „One error was …" → es gab MEHRERE Fehler; nur der
+> Docker-Fehler ist gefixt. Vom Ziel gebraucht: `~/draw_maps/.install_state/install.log`
+> bzw. Terminal-Ausgabe.** Push zu GitHub = ask-first (noch nicht gepusht).
+> pacman/systemd/Vulkan/echtes root laufen auf der Ubuntu-aarch64-Devbox weiter NICHT.
 >
 > **── Deployment-Fakten (weiter gültig) ──**
 > **ConvNeXt-Tiny (0.765 @wall_thr0.5, 32M) ist der Deployment-DEFAULT**

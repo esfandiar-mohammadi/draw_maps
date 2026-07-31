@@ -226,6 +226,10 @@ Your `<FoundryData>` location:
 - Linux: `~/.local/share/FoundryVTT/Data`
 - macOS: `~/Library/Application Support/FoundryVTT/Data`
 - Windows: `%localappdata%/FoundryVTT/Data`
+- **Docker/Podman:** the host side of the volume mounted at `/data` (so
+  `<host dir>/Data/modules/…`); for a *named* volume copy it in with
+  `docker cp <dir> <container>:/data/Data/modules/`. `install.sh` does all of
+  this for you — §C.6.
 - The Forge / hosted: use the host's module-upload wizard, §B.4.
 
 ### B.3 Method 3 — Build from source
@@ -247,9 +251,13 @@ FOUNDRY_DATA_PATH=/path/to/FoundryVTT/Data/modules npm run dev
 
 ### B.4 Remote / hosted Foundry
 
-If Foundry runs somewhere other than your own machine (The Forge, a VPS, a
-Docker host), the browser is on `https://…` and **cannot** reach
+This is about Foundry running on **another machine** (The Forge, a VPS, a remote
+Docker host): the browser is then on `https://…` and **cannot** reach
 `http://localhost:8177` on your PC directly. Two options:
+
+> Foundry in a container **on your own machine** is *not* this case — the module
+> fetches from the browser, so `http://localhost:8177` is correct and no tunnel
+> is needed. See §C.6.
 
 - **HTTPS tunnel (recommended, verified):** expose the local service over HTTPS
   and point the module's Service URL at it:
@@ -325,10 +333,19 @@ What makes it safe to just run (and re-run):
   and installs the module into `<data>/Data/modules/wall-annotation-companion/`.
   Enabling it + choosing the world stays a one-time Foundry-UI click (per-world,
   unsafe to edit while Foundry runs); the Service URL already defaults correctly.
+  **Foundry in Docker/Podman is handled too — see §C.6.**
+- **Three stages, and it pauses instead of failing.** Stage 1 is the service
+  (fully automatic), stage 2 the module files, stage 3 the two clicks in
+  Foundry's UI. If a stage needs something only you can do — most commonly
+  joining the `docker` group, which only takes effect after a **new login** —
+  the installer prints exactly what to do and stops with exit code 4. Nothing is
+  lost: `bash install.sh` resumes at that very step.
 
 Useful flags: `--port N`, `--host ADDR`, `--threads N` (default ~80 % of cores),
-`--no-service` (skip the systemd unit), `--no-module` (skip the Foundry-module install),
+`--no-service` (skip the systemd unit), `--no-module` / `--service-only` (skip the
+Foundry-module install), `--module-only` (only redo the module part),
 `--foundry-data DIR` (Foundry user-data folder if auto-search fails),
+`--docker-container NAME` (the Foundry container, if auto-detect picks wrong),
 `--model-url` / `--model-src` (obtain the model), `--status`, `--reset`,
 `--uninstall`. `--help` lists all.
 
@@ -382,6 +399,62 @@ loginctl enable-linger "$USER"                    # keep running without a login
 If Foundry runs on this machine, the default Service URL `http://localhost:8177`
 just works — no tunnel. Only use §B.4's tunnel for hosted Foundry.
 
+### C.6 Foundry in a Docker/Podman container
+
+This is fully supported and needs no manual copying — but it needs **one
+permission**, because the module files have to be placed inside the container's
+data volume and only the container runtime knows where that is.
+
+**The service URL stays `http://localhost:8177`.** The module calls the service
+from **your browser**, not from inside the container, so you do *not* have to
+expose the port to the container or change any network setting.
+
+What the installer does:
+
+1. It notices a containerized Foundry even without any Docker access — a Foundry
+   process whose cgroup is a container cgroup.
+2. It asks the runtime for the Foundry container (matching image or name) and
+   for its mounts.
+3. Then it picks the cheapest working route:
+   - the volume is a **bind mount you can write** → plain file copy;
+   - the volume is a **named volume** (`/var/lib/docker/volumes/…`, root-only) or
+     a bind mount owned by Foundry's container uid (e.g. `421`, the
+     `felddy/foundryvtt` default) → it copies **through the runtime**
+     (`docker cp`) and hands the files to that uid inside the container. No sudo
+     needed for this route.
+4. Finally it reminds you to `docker restart <container>` so Foundry rescans its
+   modules, then you enable the module in the UI (stage 3).
+
+**If you are not allowed to talk to Docker**, the installer stops (exit 4) and
+prints these choices — pick one and re-run:
+
+```bash
+# A) grant yourself Docker access (recommended, one time)
+sudo usermod -aG docker "$USER"
+#    then LOG OUT and LOG IN again — a group change only applies to new
+#    sessions; in the current terminal:  newgrp docker
+bash install.sh
+
+# B) let the installer use sudo for the docker commands
+sudo -v && bash install.sh
+
+# C) skip Docker entirely: name the host directory that is mounted as /data
+bash install.sh --foundry-data /host/path/to/foundrydata
+
+# D) service only now, module later
+bash install.sh --no-module
+```
+
+Auto-detection picking the wrong container (several containers match "foundry")?
+Name it: `bash install.sh --module-only --docker-container my-foundry`.
+
+Uninstall is container-aware: `bash install.sh --uninstall` removes the module
+*inside* the container and never touches host paths.
+
+Verified with real containers (named volume, writable bind mount, bind mount
+owned by uid 421, no-Docker-access pause, resume, uninstall):
+`tools/test_install_module.sh` — 51 assertions, all green.
+
 ---
 
 ## Troubleshooting
@@ -394,6 +467,9 @@ just works — no tunnel. Only use §B.4's tunnel for hosted Foundry.
 | Walls offset from the image | Scene padding not 0 — set Scene → Configure → Padding = 0 and re-run (§B.5). |
 | Detection slow (> 3 s) | Keep single-scale (`--scales 1024`, default), raise `--threads`, close other CPU load. |
 | `onnxruntime` warns about `/sys/class/drm/card0` | Harmless GPU-probe warning on headless/AMD boxes; the service runs on CPU regardless. |
+| Installer: "permission denied … docker.sock" / can't reach the Foundry container | You are not in the `docker` group: `sudo usermod -aG docker "$USER"`, then **log out and back in** (or `newgrp docker`), then re-run `bash install.sh`. Alternatives in §C.6. |
+| Installer stops with "ONE STEP NEEDS YOU" (exit 4) | By design, not an error: do the printed action, then re-run `bash install.sh` — it resumes at that step. |
+| Module installed but Foundry doesn't list it (Docker) | Foundry only rescans modules at startup: `docker restart <container>`. |
 
 ---
 

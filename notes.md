@@ -1,3 +1,82 @@
+## 2026-07-31 — install.sh: Foundry-in-DOCKER support + echter Multi-Step-Handshake (User-Report: Installer scheiterte am Docker-Zugriff)
+
+**User-Report vom Ziel-Arch-Rechner:** `bash install.sh` lief NICHT durch; u.a.
+"keine Zugriffsrechte auf das Foundry-Docker". Frage des Users: habe ich Docker-
+Zugriff (docker-Gruppe) angenommen? Und: nötige User-Aktionen sollen IM Skript
+stehen, Installation soll mehrstufig sein.
+
+**Root cause (bestätigt, nicht geraten):** `grep -i docker install.sh` = 0 Treffer.
+Der Installer kannte Container GAR NICHT — er nahm ein *natives* lokales Foundry an,
+dessen Data-Dir ein normales, für den User schreibbares Verzeichnis ist:
+Discovery = (a) `pgrep` Foundry-Prozess + `--dataPath`, (b) host-`Config/options.json`,
+(c) Standardpfade, (d) `find $HOME`; danach blankes `mkdir -p`/`unzip`.
+Bei Foundry-in-Docker liegt das Data-Dir in einem **named volume**
+(`/var/lib/docker/volumes/*/_data`, nur root → genau der gemeldete Fehler) oder in
+einem Bind-Mount, das Foundrys Container-uid gehört (felddy: 421). Und *wo* es liegt,
+weiß nur die Container-Runtime → Socket-Zugriff = docker-Gruppe oder sudo. Also:
+nicht "docker-Gruppe angenommen", sondern **Container-Fall komplett übersehen**;
+zusätzlicher Fallstrick: der `--dataPath` eines Container-Foundry (`/data`) ist ein
+Pfad IM Container und auf dem Host bedeutungslos.
+
+**Neu gebaut (install.sh 750 → ~1050 Zeilen):**
+1. **Neuer Step `foundry` (Install-Ziel bestimmen)** vor dem Step `module`; Modus
+   wird gemerkt (`chosen.modmode` = host|docker + `container`/`cdata`/`modparent`).
+2. **Container-Erkennung OHNE Runtime-Zugriff:** `pid_in_container()` liest
+   `/proc/<pid>/cgroup` der Foundry-Prozesse → wir wissen, dass Foundry im Container
+   läuft, auch wenn wir nicht mit Docker sprechen dürfen. Container-`--dataPath`-
+   Kandidaten werden jetzt bewusst VERWORFEN (Host-Pfad-Verwechslung).
+3. **Routen-Wahl (billigste, die funktioniert):** Bind-Mount für uns schreibbar →
+   normale Dateikopie; named volume / Bind-Mount gehört Container-uid → **über die
+   Runtime** (`docker cp` + `chown -R <uid des Data/modules> ` im Container). Der
+   zweite Fall braucht KEIN sudo — bewusst so, statt zu eskalieren.
+4. **Multi-Step-Handshake `need_user_action()`:** Schritte, die nur ein Mensch
+   erledigen kann, brechen nicht ab, sondern **pausieren** (exit 4) mit exakten
+   Anweisungen + „danach einfach `bash install.sh`" (Resume genau dort). Marker
+   `.install_state/blocked`; nächster Lauf meldet „resuming after: …".
+   Docker-Gate nennt A) `sudo usermod -aG docker $USER` **+ ausdrücklich: aus- und
+   wieder einloggen** (bzw. `newgrp docker`) — Gruppen gelten nur für neue Sessions,
+   genau die Falle, an der ein simples „re-run" scheitert —, B) `sudo -v` (Installer
+   nutzt dann `sudo docker`), C) `--foundry-data <hostpfad>`, D) `--no-module`.
+5. **3 Stages sichtbar** (1 Service · 2 Modul-Dateien · 3 zwei Klicks in Foundry) mit
+   Stage-Bannern; **Heads-up VOR Stage 1**, wenn erkennbar ist, dass Stage 2 eine
+   Aktion braucht (User kann sie parallel machen). Neue Flags: `--module-only`,
+   `--service-only`, `--docker-container NAME`.
+6. **`--uninstall` container-sicher:** löscht im Docker-Modus IM Container
+   (`docker exec rm -rf`) — vorher hätte ein Host-`rm -rf` auf einen Container-Pfad
+   gezeigt (war durch `[ -d ]` abgefangen, aber falsch gedacht).
+7. **Container-Restart-Hinweis** (`docker restart <name>`) statt „Foundry neu starten".
+8. Nebenfix: `zip_module_json()` liest module.json via unzip ODER python-Fallback
+   (id-Guard/Versionsvergleich hatten nur unzip).
+
+**WICHTIG verifiziert (aus dem gelieferten `module.js`):** `detect()` macht
+`fetch("http://localhost:8177/…")` **im Browser**, nicht im Foundry-Server → bei
+Foundry-in-Docker bleibt die Service-URL `localhost:8177` korrekt, der Port muss
+NICHT in den Container exponiert werden. Steht jetzt so in README §C.6 + im
+Installer-Summary.
+
+**Verifikation (H2/H8 — echte Container, keine Stubs): `tools/test_install_module.sh`,
+51 Assertions, alle grün.** Fälle: named volume → docker cp; Bind-Mount schreibbar →
+Host-Kopie; Bind-Mount uid 421 → docker cp OHNE sudo (Datei danach uid 421);
+veraltete/verschmutzte Kopie → wird ersetzt statt gemerged (docker cp merged!);
+kein Docker-Zugriff (PATH-Stub „permission denied on socket") + realer Container-
+Foundry-Prozess → exit 4 + alle 4 Anweisungen + blocked-Marker + nichts installiert;
+Resume danach grün; `--uninstall` löscht im Container, Container läuft weiter;
+`--foundry-data` (Docker gar nicht angefasst); nicht schreibbares Dir → root-Pfad
+(sudo simuliert, Testgrenze); kein Foundry → skip + Rezept, exit 0; `--status`.
+shellcheck -S warning: nur die vorbestehende SC2024-Meldung (Log-Redirect gehört
+absichtlich dem User). `bash -n` grün.
+
+**Testgrenzen (ehrlich):** echtes root/`sudo` konnte hier nicht laufen (nur Stub),
+pacman/systemd/Vulkan wie immer nicht (Ubuntu-aarch64-Devbox). Getestet wurde mit
+`alpine`-Containern, nicht mit einem echten `felddy/foundryvtt`-Image.
+
+**OFFEN / vom User gebraucht:** der Report nennt „One error was …" → es gab
+MEHRERE Fehler. Ich habe nur den Docker-Fehler (rekonstruiert) gefixt. Für die
+übrigen brauche ich `~/draw_maps/.install_state/install.log` bzw. die
+Terminal-Ausgabe vom Ziel. Push zu GitHub = ask-first.
+
+---
+
 ## 2026-07-24 (spät-3) — Clone-Deploy-E2E aus frischem Ordner: alles Testbare grün; 1 latenter unzip-Bug gefixt
 
 **Auftrag (User):** frischen `git clone` in leeren Ordner, Modell ziehen, gründlich

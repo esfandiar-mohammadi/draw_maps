@@ -10,7 +10,12 @@
 #   • finds the model file by itself (repo, ~, ~/Downloads, USB mounts, ...) and
 #     downloads it from the project host if it isn't present anywhere,
 #   • finds the LOCAL Foundry data folder and installs the module into it
-#     (so a box running Foundry locally needs no manual copy),
+#     (so a box running Foundry locally needs no manual copy) — including the
+#     case where Foundry runs in a Docker/Podman container: then the files go
+#     into the container's data volume,
+#   • PAUSES with precise instructions whenever a step needs a human action
+#     (e.g. joining the 'docker' group, which only takes effect after a new
+#     login) and continues exactly there when you re-run it,
 #   • asks for root ONLY when needed — and lets you either type your sudo
 #     password, run the command yourself in another terminal, or abort,
 #   • remembers every completed step in .install_state/ and, when re-run,
@@ -32,8 +37,14 @@
 #   --model-url URL   download the model from URL (default: the project host,
 #                     http://mohammadi.eu/dateien/...) if not found locally
 #   --foundry-data D  Foundry user-data dir (the folder containing Data/), if the
-#                     auto-search can't find your local Foundry install
+#                     auto-search can't find your local Foundry install. For a
+#                     containerized Foundry this is the HOST side of the volume
+#                     that is mounted as /data (skips all Docker access).
+#   --docker-container N  name/id of the Foundry container (skips auto-detect)
 #   --no-module       do not install the Foundry module (service only)
+#   --service-only    alias for --no-module (stage 1 only)
+#   --module-only     only (re)install the Foundry module, touch nothing else
+#                     (useful after you granted yourself Docker access)
 #   --vulkan          use the MobileNetV3+ncnn/Vulkan GPU path instead of the
 #                     ConvNeXt/CPU default (RX 6600 via RADV; lower quality
 #                     0.722 vs 0.765 — see DEPLOYMENT.md §1; model files are
@@ -92,7 +103,7 @@ run_logged() { _log "RUN   $*"; "$@" >>"${LOGFILE:-/dev/null}" 2>&1; }
 # ─────────────────────────────────────────────────────────────────────────────
 PORT_PREF=8177; HOST=127.0.0.1; THREADS=""; MODEL_SRC=""; MODEL_URL=""
 VULKAN=0; NO_SERVICE=0; DO_STATUS=0; DO_RESET=0; DO_UNINSTALL=0
-NO_MODULE=0; FOUNDRY_DATA=""
+NO_MODULE=0; FOUNDRY_DATA=""; FOUNDRY_CONTAINER=""; MODULE_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --port)      PORT_PREF="$2"; shift 2;;
@@ -101,7 +112,9 @@ while [ $# -gt 0 ]; do
     --model-src) MODEL_SRC="$2"; shift 2;;
     --model-url) MODEL_URL="$2"; shift 2;;
     --foundry-data) FOUNDRY_DATA="$2"; shift 2;;
-    --no-module) NO_MODULE=1; shift;;
+    --docker-container) FOUNDRY_CONTAINER="$2"; shift 2;;
+    --no-module|--service-only) NO_MODULE=1; shift;;
+    --module-only) MODULE_ONLY=1; shift;;
     --vulkan)    VULKAN=1; shift;;
     --no-service) NO_SERVICE=1; shift;;
     --status)    DO_STATUS=1; shift;;
@@ -179,6 +192,128 @@ run_root() {  # run_root <description> <cmd...>
   fail "root needed but no TTY to ask. Run this yourself, then re-run install.sh:"
   echo "      sudo $*" >&2
   exit 3
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MULTI-STEP HANDSHAKE
+# Some things genuinely cannot be done by a script: a group membership only
+# applies to a NEW login session, and only you can decide to grant it. Instead
+# of failing with "permission denied", such a step PAUSES: it prints exactly
+# what to do, keeps every finished step recorded, and exits 4. The next
+# 'bash install.sh' re-verifies everything and continues at this very point.
+# ─────────────────────────────────────────────────────────────────────────────
+need_user_action() {   # need_user_action <headline> [<line> ...]
+  local head="$1"; shift
+  printf '%s\n' "$head" > "$STATE/blocked"
+  echo
+  echo "${C_Y}${C_B}══════════════════════════════════════════════════════════════════════${C_0}"
+  echo "${C_Y}${C_B}  ONE STEP NEEDS YOU — installation paused (nothing is broken)${C_0}"
+  echo "${C_Y}${C_B}══════════════════════════════════════════════════════════════════════${C_0}"
+  echo "  $head"
+  echo
+  local l; for l in "$@"; do echo "  $l"; done
+  echo
+  echo "  Everything up to here is done and remembered. Afterwards just run:"
+  echo "      ${C_C}bash install.sh${C_0}          ${C_0}# continues exactly here"
+  echo "  (or ${C_C}bash install.sh --module-only${C_0} to redo only this last part)"
+  echo
+  _log "PAUSE $head"
+  exit 4
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTAINER RUNTIME (Foundry in Docker/Podman is a first-class case)
+# If Foundry runs in a container, its user data lives in a volume: either a
+# bind mount (a host directory, usually owned by the container's Foundry uid)
+# or a named volume under /var/lib/docker/volumes/... which is root-only. We
+# cannot even ASK where it is without talking to the runtime socket — which
+# needs membership in the 'docker' group (or sudo). That is the manual action
+# the installer pauses for.
+# ─────────────────────────────────────────────────────────────────────────────
+CRI=""          # the usable container CLI (docker|podman), empty = none
+CRI_SUDO=0      # 1 = only reachable via sudo
+CRI_PRESENT=""  # runtimes that are INSTALLED (usable or not)
+CRI_PROBED=0
+cri_probe() {   # 0 = we can talk to a container runtime
+  [ -n "$CRI" ] && return 0
+  [ "$CRI_PROBED" -eq 1 ] && return 1
+  CRI_PROBED=1
+  local c
+  for c in docker podman; do
+    command -v "$c" >/dev/null 2>&1 || continue
+    CRI_PRESENT="${CRI_PRESENT:+$CRI_PRESENT }$c"
+    if "$c" info >/dev/null 2>&1; then CRI="$c"; CRI_SUDO=0; _log "CRI $c (direct)"; return 0; fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n "$c" info >/dev/null 2>&1; then
+      CRI="$c"; CRI_SUDO=1; _log "CRI $c (sudo)"; return 0
+    fi
+  done
+  return 1
+}
+cri() { if [ "$CRI_SUDO" -eq 1 ]; then sudo "$CRI" "$@"; else "$CRI" "$@"; fi; }
+cri_label() { if [ "$CRI_SUDO" -eq 1 ]; then printf 'sudo %s' "$CRI"; else printf '%s' "${CRI:-$CRI_PRESENT}"; fi; }
+cri_unlock() {  # runtime installed but not reachable: offer to use sudo for it
+  [ -n "$CRI_PRESENT" ] || return 1
+  [ -t 0 ] && [ -t 1 ] && command -v sudo >/dev/null 2>&1 || return 1
+  echo "  ${C_B}$CRI_PRESENT is installed, but this account may not talk to it${C_0}"
+  echo "  (that is a permission on the runtime socket, not a bug)."
+  local a
+  read -r -p "  Use sudo for the container commands now (asks your password)? [Y/n] " a
+  case "${a:-y}" in
+    y|Y|"") sudo -v || return 1
+            local c
+            for c in $CRI_PRESENT; do
+              if sudo -n "$c" info >/dev/null 2>&1; then
+                CRI="$c"; CRI_SUDO=1; ok "using 'sudo $c' for container access"; return 0
+              fi
+            done;;
+  esac
+  return 1
+}
+docker_access_gate() {   # certain: Foundry is containerized, runtime unreachable
+  local rt="${CRI_PRESENT:-docker}"; rt="${rt%% *}"
+  local grp="docker"; [ "$rt" = "podman" ] && grp="podman"
+  need_user_action \
+    "Foundry runs inside a $rt container, but this account ($(id -un)) is not allowed to talk to $rt." \
+    "The module files must be placed INSIDE that container's data volume, so the" \
+    "installer has to ask $rt where that volume is. Choose ONE of these:" \
+    "" \
+    "  ${C_B}A) give yourself $rt access — recommended, one time${C_0}" \
+    "       sudo usermod -aG $grp $(id -un)" \
+    "     Then ${C_B}log out and log in again${C_0} (a group change only applies to new" \
+    "     sessions). In this terminal a quicker equivalent is:" \
+    "       newgrp $grp" \
+    "" \
+    "  ${C_B}B) let the installer use sudo for the $rt commands${C_0}" \
+    "       sudo -v          # type your password once, then re-run install.sh" \
+    "" \
+    "  ${C_B}C) skip $rt entirely and name the volume's host directory${C_0}" \
+    "       bash install.sh --foundry-data /host/path/to/foundrydata" \
+    "     That is the directory containing Data/ and Config/ — the host side of" \
+    "     your  -v /host/path/to/foundrydata:/data  mount (see your compose file)." \
+    "" \
+    "  ${C_B}D) install the service only and copy the module by hand later${C_0}" \
+    "       bash install.sh --no-module" \
+    "     Then unzip ${MODULE_ZIP:-foundry_module/*.zip} into" \
+    "       <foundrydata>/Data/modules/$MODULE_ID/"
+}
+
+# process-list evidence, works WITHOUT any runtime access ─────────────────────
+pid_in_container() { grep -qE '[:/](docker|libpod|containerd|kubepods)' "/proc/$1/cgroup" 2>/dev/null; }
+FOUNDRY_PROC_MODE=""   # "" none seen | host | container
+foundry_process_scan() {   # sets FOUNDRY_PROC_MODE, prints HOST-side --dataPath values
+  local pid rest dp
+  FOUNDRY_PROC_MODE=""
+  while read -r pid rest; do
+    case "$pid" in ''|*[!0-9]*) continue;; esac
+    dp=$(printf '%s\n' "$rest" | grep -oE -- '--dataPath[ =][^ ]+' | head -1 | sed -E 's/--dataPath[ =]//')
+    if pid_in_container "$pid"; then
+      FOUNDRY_PROC_MODE="container"        # its --dataPath is a path INSIDE the container
+    else
+      [ -n "$FOUNDRY_PROC_MODE" ] || FOUNDRY_PROC_MODE="host"
+      [ -n "$dp" ] && printf '%s\n' "${dp%/}"
+    fi
+  done < <(pgrep -af 'resources/app/main.js|foundryvtt|main\.mjs' 2>/dev/null)
+  return 0
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -550,12 +685,10 @@ MODULE_ZIP="$(module_zip_path || echo "$REPO/foundry_module/wall-annotation-comp
 foundry_data_candidates() {
   # print candidate USER-DATA dirs (the folder that CONTAINS Data/ and Config/)
   [ -n "$FOUNDRY_DATA" ] && printf '%s\n' "$FOUNDRY_DATA"
-  # 1) a running Foundry process with --dataPath=...
-  local line dp
-  while IFS= read -r line; do
-    dp=$(printf '%s\n' "$line" | grep -oE -- '--dataPath[ =][^ ]+' | head -1 | sed -E 's/--dataPath[ =]//')
-    [ -n "$dp" ] && printf '%s\n' "${dp%/}"
-  done < <(pgrep -af 'resources/app/main.js|foundryvtt|main.mjs' 2>/dev/null)
+  # 1) a running HOST Foundry process with --dataPath=... (a containerized
+  #    Foundry is skipped on purpose: its --dataPath is a path inside the
+  #    container, e.g. /data, which means nothing on the host)
+  foundry_process_scan
   # 2) dataPath recorded in any options.json under known config roots
   local cfg
   for cfg in "$HOME/.local/share/FoundryVTT/Config/options.json" \
@@ -585,72 +718,317 @@ foundry_modules_dir() {  # echo the first candidate that looks like a real Found
   done < <(foundry_data_candidates)
   return 1
 }
+# reading module.json out of the zip: unzip if present, python otherwise ──────
+zip_module_json() {
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -p "$MODULE_ZIP" module.json 2>/dev/null && return 0
+  fi
+  local py
+  for py in "$REPO/.venv/bin/python" python3 python; do
+    command -v "$py" >/dev/null 2>&1 || [ -x "$py" ] || continue
+    "$py" -c "import zipfile,sys; sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read('module.json').decode())" \
+      "$MODULE_ZIP" 2>/dev/null && return 0
+  done
+  return 1
+}
+zip_version() { zip_module_json | grep -oE '"version"[^,}]*' | head -1; }
+
+# ── the Foundry container, if Foundry is dockerized ──────────────────────────
+FCID=""; FCNAME=""; FCIMAGE=""
+foundry_container_find() {   # sets FCID/FCNAME/FCIMAGE; 1 = no Foundry container
+  [ -n "$FCID" ] && return 0
+  cri_probe || return 1
+  local line=""
+  if [ -n "$FOUNDRY_CONTAINER" ]; then
+    line="$(cri inspect --format '{{.Id}}|{{.Name}}|{{.Config.Image}}' "$FOUNDRY_CONTAINER" 2>/dev/null)" \
+      || { fail "no container named '$FOUNDRY_CONTAINER' (checked with $(cri_label))"; return 1; }
+  else
+    # running containers first, then stopped ones; match image OR name
+    line="$(cri ps    --format '{{.ID}}|{{.Names}}|{{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | head -1)"
+    [ -n "$line" ] || line="$(cri ps -a --format '{{.ID}}|{{.Names}}|{{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | head -1)"
+  fi
+  [ -n "$line" ] || return 1
+  IFS='|' read -r FCID FCNAME FCIMAGE <<<"$line"
+  FCNAME="${FCNAME#/}"
+  return 0
+}
+container_mounts() { # <cid> → "dest|src|type|name" per line
+  cri inspect --format '{{range .Mounts}}{{.Destination}}|{{.Source}}|{{.Type}}|{{.Name}}{{"\n"}}{{end}}' "$1" 2>/dev/null
+}
+container_running() { [ "$(cri inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ]; }
+container_userdata_dir() {  # <cid> → path INSIDE the container that holds Data/
+  local dest src _rest
+  if container_running "$1"; then
+    while IFS='|' read -r dest src _rest; do
+      [ -n "$dest" ] || continue
+      cri exec "$1" sh -c "[ -d '${dest%/}/Data' ]" >/dev/null 2>&1 && { printf '%s\n' "${dest%/}"; return 0; }
+    done < <(container_mounts "$1")
+    cri exec "$1" sh -c '[ -d /data/Data ]' >/dev/null 2>&1 && { printf '/data\n'; return 0; }
+    return 1
+  fi
+  # stopped: guess from the mount list (felddy/foundryvtt and friends use /data)
+  while IFS='|' read -r dest src _rest; do
+    case "${dest%/}" in */data|*/foundrydata) printf '%s\n' "${dest%/}"; return 0;; esac
+  done < <(container_mounts "$1")
+  return 1
+}
+
+# ── step 10: WHERE does the module have to go? ────────────────────────────────
+# Three possible answers, resolved once and remembered:
+#   host   — plain local Foundry: <userdata>/Data/modules on this filesystem
+#   docker — Foundry in a container: into the container's data volume
+#   (none) — no Foundry here: service-only install, module by hand
+verify_foundry() {
+  [ "$NO_MODULE" -eq 1 ] && return 0
+  case "$(recall modmode)" in
+    host)
+      local md; md="$(recall modparent)"
+      [ -n "$md" ] && [ -d "$md" ] && return 0
+      fail "the recorded Foundry modules dir is gone: $md"; return 1;;
+    docker)
+      cri_probe || { fail "no access to the container runtime any more"; return 1; }
+      foundry_container_find || { fail "the Foundry container is gone"; return 1; }
+      [ -n "$(recall cdata)" ] || { fail "container data path not recorded"; return 1; }
+      return 0;;
+    *) fail "Foundry install location not determined yet"; return 1;;
+  esac
+}
+do_foundry() {
+  [ "$NO_MODULE" -eq 1 ] && return 0
+
+  # (a) an explicit path always wins — no guessing, no Docker needed
+  if [ -n "$FOUNDRY_DATA" ]; then
+    local md="${FOUNDRY_DATA%/}/Data/modules"
+    [ -d "${FOUNDRY_DATA%/}" ] || { fail "--foundry-data '$FOUNDRY_DATA' does not exist"; return 1; }
+    mkdir -p "$md" 2>/dev/null || true
+    [ -d "$md" ] || { fail "$md does not exist and cannot be created — is that really the user-data dir (it contains Data/ and Config/)?"; return 1; }
+    remember modmode host; remember modparent "$md"; remember cdata ""; remember container ""
+    ok "using --foundry-data → $md"; return 0
+  fi
+
+  # (b) a plain host installation?
+  #     scan the process list HERE (not inside the candidate generator, which
+  #     runs in a subshell) so FOUNDRY_PROC_MODE survives for step (c).
+  foundry_process_scan >/dev/null
+  local md; md="$(foundry_modules_dir || true)"
+  if [ -n "$md" ]; then
+    remember modmode host; remember modparent "$md"; remember cdata ""; remember container ""
+    ok "local Foundry data found → $md"; return 0
+  fi
+
+  # (c) containerized?
+  local certain=0 maybe=0
+  [ "$FOUNDRY_PROC_MODE" = "container" ] && certain=1
+  if [ "$certain" -eq 0 ] && { command -v docker >/dev/null 2>&1 || command -v podman >/dev/null 2>&1; }; then
+    maybe=1
+  fi
+  if [ "$certain" -eq 1 ] || [ "$maybe" -eq 1 ]; then
+    [ "$certain" -eq 1 ] && ok "Foundry is running inside a container (its process is in a container cgroup)"
+    if ! cri_probe; then
+      cri_unlock || true
+    fi
+    if ! cri_probe; then
+      # runtime installed but unreachable. If we KNOW Foundry is containerized
+      # this is the blocker → pause with instructions. If we were only guessing,
+      # fall through to asking/skipping.
+      [ "$certain" -eq 1 ] && docker_access_gate
+    else
+      if foundry_container_find; then
+        ok "Foundry container: $FCNAME  (image $FCIMAGE)"
+        # 1) is the volume's host side a directory we may WRITE? then plain file
+        #    copies win — they also work while the container is stopped. If it
+        #    is owned by Foundry's container uid (the usual bind-mount case) we
+        #    do NOT escalate to root: copying through the runtime needs no sudo.
+        local dest src _rest
+        while IFS='|' read -r dest src _rest; do
+          [ -n "$src" ] || continue
+          if [ -d "$src/Data/modules" ] && [ -w "$src/Data/modules" ]; then
+            remember modmode host; remember modparent "$src/Data/modules"
+            remember cdata ""; remember container "$FCNAME"
+            ok "container volume is writable on the host → $src/Data/modules"
+            return 0
+          fi
+          [ -d "$src/Data/modules" ] && \
+            ok "volume $src belongs to the container's user — installing through $(cri_label) instead"
+        done < <(container_mounts "$FCID")
+        # 2) named volume / not-ours path → go through the runtime itself
+        local cdata; cdata="$(container_userdata_dir "$FCID" || true)"
+        if [ -z "$cdata" ]; then
+          fail "found container '$FCNAME' but no Foundry user data (Data/) in any of its mounts"
+          warn "if that is the wrong container, name the right one:  --docker-container NAME"
+          warn "or give the host path directly:  --foundry-data /path/to/foundrydata"
+          return 1
+        fi
+        remember modmode docker; remember container "$FCNAME"
+        remember cdata "$cdata"; remember modparent "$cdata/Data/modules"
+        ok "will install through $(cri_label) into $FCNAME:$cdata/Data/modules"
+        return 0
+      fi
+      [ "$certain" -eq 1 ] && {
+        fail "Foundry runs in a container, but $(cri_label) lists no container matching 'foundry'"
+        warn "name it explicitly:  bash install.sh --docker-container NAME"
+        warn "or give the host path:  bash install.sh --foundry-data /path/to/foundrydata"
+        return 1
+      }
+    fi
+  fi
+
+  # (d) ask
+  if [ -t 0 ] && [ -t 1 ]; then
+    echo "  Could not locate Foundry's user-data folder automatically."
+    echo "  In Foundry it is shown at ${C_C}Setup → Configuration → \"User Data Path\"${C_0}."
+    echo "  (Foundry in Docker? give the HOST directory mounted as /data.)"
+    local ans; read -r -p "  Paste it here (or leave blank to skip the module): " ans
+    if [ -n "$ans" ]; then
+      ans="${ans%/}"
+      mkdir -p "$ans/Data/modules" 2>/dev/null || true
+      if [ -d "$ans/Data/modules" ]; then
+        remember modmode host; remember modparent "$ans/Data/modules"; remember cdata ""; remember container ""
+        ok "using $ans/Data/modules"; return 0
+      fi
+      warn "$ans/Data/modules is not usable"
+    fi
+  fi
+
+  # (e) give up on the module (the service is the critical part) — with a recipe
+  warn "skipping the module install — no Foundry user-data folder found here."
+  warn "do it by hand: unzip $MODULE_ZIP into <FoundryData>/Data/modules/$MODULE_ID/"
+  warn "or re-run with:  bash install.sh --module-only --foundry-data /path/to/FoundryUserData"
+  warn "Foundry in Docker:  bash install.sh --module-only --docker-container NAME"
+  NO_MODULE=1
+  return 0
+}
+
+# ── step 11: put the module files there ──────────────────────────────────────
+module_stage_tmp() {  # unpack the zip into <tmp>/<MODULE_ID>; echo <tmp>
+  local t; t="$(mktemp -d "${TMPDIR:-/tmp}/wac-module.XXXXXX")" || return 1
+  mkdir -p "$t/$MODULE_ID"
+  if command -v unzip >/dev/null 2>&1 && unzip -oq "$MODULE_ZIP" -d "$t/$MODULE_ID"; then
+    printf '%s\n' "$t"; return 0
+  fi
+  local py
+  for py in "$REPO/.venv/bin/python" python3; do
+    [ -x "$py" ] || command -v "$py" >/dev/null 2>&1 || continue
+    if "$py" -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+         "$MODULE_ZIP" "$t/$MODULE_ID" 2>/dev/null; then printf '%s\n' "$t"; return 0; fi
+  done
+  rm -rf "$t"; return 1
+}
 module_installed_ok() {  # <moduledir> — files present and correct id+version?
   local md="$1" mj="$1/module.json"
   [ -f "$mj" ] && [ -f "$md/scripts/module.js" ] || return 1
   grep -q "\"id\": *\"$MODULE_ID\"" "$mj" || return 1
-  # up to date? compare version with the shipped zip's module.json
-  local want got
-  want=$(unzip -p "$MODULE_ZIP" module.json 2>/dev/null | grep -oE '"version"[^,}]*' | head -1)
-  got=$(grep -oE '"version"[^,}]*' "$mj" | head -1)
-  [ "$want" = "$got" ]
+  [ "$(zip_version)" = "$(grep -oE '"version"[^,}]*' "$mj" | head -1)" ]
+}
+module_installed_ok_docker() {  # <cid> <module dir inside the container>
+  local cid="$1" cmod="$2" mj
+  container_running "$cid" || return 1      # can only read it while it runs
+  mj="$(cri exec "$cid" cat "$cmod/module.json" 2>/dev/null)" || return 1
+  printf '%s' "$mj" | grep -q "\"id\": *\"$MODULE_ID\"" || return 1
+  cri exec "$cid" sh -c "[ -f '$cmod/scripts/module.js' ]" >/dev/null 2>&1 || return 1
+  [ "$(zip_version)" = "$(printf '%s' "$mj" | grep -oE '"version"[^,}]*' | head -1)" ]
+}
+module_warn_siblings() {  # <modules parent dir listing command produces names>
+  local other
+  for other in auto-wall-companion auto-wall-companion-ml; do
+    if printf '%s\n' "$1" | grep -qx "$other"; then
+      warn "another module '$other' also exists there —"
+      warn "disable/remove it in Foundry (Wall Annotation Companion replaces it)."
+    fi
+  done
+}
+module_install_host() {  # <modules dir>
+  local moddir="$1" target="$1/$MODULE_ID" stage
+  stage="$(module_stage_tmp)" || { fail "could not unpack $MODULE_ZIP"; return 1; }
+  if mkdir -p "$target" 2>/dev/null && [ -w "$target" ]; then
+    rm -rf "${target:?}"/* 2>/dev/null || true
+    cp -a "$stage/$MODULE_ID/." "$target/" || { rm -rf "$stage"; fail "copy into $target failed"; return 1; }
+  else
+    # a bind-mounted container volume (or a system-wide Foundry) is typically
+    # owned by Foundry's own uid → write as root, then hand the files over to
+    # whoever owns the modules directory, so Foundry can still read them.
+    warn "$moddir is not writable by $(id -un) — installing as root"
+    run_root "create the module directory $target" mkdir -p "$target" \
+      || { rm -rf "$stage"; fail "cannot create $target even as root"; return 1; }
+    run_root "copy the module files into $target" cp -aT "$stage/$MODULE_ID" "$target" \
+      || { rm -rf "$stage"; fail "cannot copy into $target"; return 1; }
+    local own; own="$(stat -c '%u:%g' "$moddir" 2>/dev/null || true)"
+    if [ -n "$own" ] && [ "$own" != "0:0" ]; then
+      run_root "give the files to Foundry's user ($own)" chown -R "$own" "$target" \
+        || warn "could not chown $target to $own — if Foundry cannot read the module, fix the owner"
+    fi
+  fi
+  rm -rf "$stage"
+  module_warn_siblings "$(ls -1 "$moddir" 2>/dev/null)"
+  remember moduledir "$target"
+  ok "module installed → $target"
+}
+module_install_docker() {  # <cid> <container userdata>
+  local cid="$1" cdata="$2" cmods="$2/Data/modules" cmod="$2/Data/modules/$MODULE_ID" stage
+  container_running "$cid" || {
+    fail "container '$FCNAME' is not running — start it and re-run (files are copied through it)"
+    warn "    $(cri_label) start $FCNAME"
+    return 1; }
+  stage="$(module_stage_tmp)" || { fail "could not unpack $MODULE_ZIP"; return 1; }
+  # remove a stale copy first: 'cp' into a container MERGES directories
+  cri exec -u 0 "$cid" sh -c "rm -rf '$cmod'" >/dev/null 2>&1 || true
+  cri exec -u 0 "$cid" sh -c "mkdir -p '$cmods'" >/dev/null 2>&1 || true
+  if ! cri cp "$stage/$MODULE_ID" "$cid:$cmods/" >>"$LOGFILE" 2>&1; then
+    rm -rf "$stage"; fail "$(cri_label) cp into $FCNAME:$cmods/ failed (see $LOGFILE)"; return 1
+  fi
+  rm -rf "$stage"
+  # files arrive owned by root; Foundry in the container runs as its own uid and
+  # only needs to READ them, but match the owner of Data/modules where possible.
+  local own; own="$(cri exec "$cid" stat -c '%u:%g' "$cmods" 2>/dev/null || true)"
+  if [ -n "$own" ] && [ "$own" != "0:0" ]; then
+    cri exec -u 0 "$cid" chown -R "$own" "$cmod" >/dev/null 2>&1 \
+      && ok "files handed to Foundry's uid ($own) inside the container" \
+      || warn "could not chown inside the container — module stays root-owned (readable, normally fine)"
+  fi
+  module_warn_siblings "$(cri exec "$cid" ls -1 "$cmods" 2>/dev/null || true)"
+  remember moduledir "$cmod"
+  ok "module installed → $FCNAME:$cmod"
 }
 verify_module() {
   [ "$NO_MODULE" -eq 1 ] && return 0
   local md; md="$(recall moduledir)"
-  [ -n "$md" ] || { fail "Foundry module not installed yet"; return 1; }
-  module_installed_ok "$md" || { fail "module files missing/outdated at $md"; return 1; }
+  case "$(recall modmode)" in
+    host)
+      [ -n "$md" ] || { fail "Foundry module not installed yet"; return 1; }
+      module_installed_ok "$md" || { fail "module files missing/outdated at $md"; return 1; };;
+    docker)
+      [ -n "$md" ] || { fail "Foundry module not installed in the container yet"; return 1; }
+      cri_probe && foundry_container_find || { fail "cannot reach the Foundry container"; return 1; }
+      if ! container_running "$FCID"; then
+        warn "container '$FCNAME' is stopped — cannot re-check the module files inside it"
+        marked module && return 0
+        fail "module not verified (container stopped)"; return 1
+      fi
+      module_installed_ok_docker "$FCID" "$md" \
+        || { fail "module files missing/outdated in $FCNAME:$md"; return 1; };;
+    *) fail "install location unknown"; return 1;;
+  esac
   return 0
 }
 do_module() {
   [ "$NO_MODULE" -eq 1 ] && return 0
   [ -f "$MODULE_ZIP" ] || { fail "module package missing: $MODULE_ZIP"; return 1; }
   # guard: the shipped zip MUST carry the collision-safe id
-  unzip -p "$MODULE_ZIP" module.json 2>/dev/null | grep -q "\"id\": *\"$MODULE_ID\"" \
+  zip_module_json | grep -q "\"id\": *\"$MODULE_ID\"" \
     || { fail "$MODULE_ZIP has the wrong module id (expected $MODULE_ID) — rebuild it from dist/"; return 1; }
 
-  local moddir; moddir="$(foundry_modules_dir || true)"
-  if [ -z "$moddir" ]; then
-    if [ -t 0 ] && [ -t 1 ]; then
-      echo "  Could not locate Foundry's user-data folder automatically."
-      echo "  In Foundry it is shown at ${C_C}Setup → Configuration → \"User Data Path\"${C_0}."
-      read -r -p "  Paste it here (or leave blank to skip module install): " ans
-      if [ -n "$ans" ]; then
-        ans="${ans%/}"; moddir="$ans/Data/modules"
-      fi
-    fi
-  fi
-  if [ -z "$moddir" ]; then
-    warn "skipping automatic module install — Foundry data dir not found."
-    warn "install it by hand: unzip $MODULE_ZIP into <FoundryData>/Data/modules/$MODULE_ID/"
-    warn "or re-run:  bash install.sh --foundry-data /path/to/FoundryUserData"
-    NO_MODULE=1   # don't fail the whole install over the browser-side piece
-    return 0
-  fi
+  case "$(recall modmode)" in
+    host)   module_install_host "$(recall modparent)" || return 1;;
+    docker) foundry_container_find || { fail "Foundry container not found any more"; return 1; }
+            module_install_docker "$FCID" "$(recall cdata)" || return 1;;
+    *)      fail "no install location — step '${DESC[foundry]:-Foundry location}' must run first"; return 1;;
+  esac
 
-  local target="$moddir/$MODULE_ID"
-  mkdir -p "$target" || { fail "cannot create $target (permissions?)"; return 1; }
-  # clean any stale contents (also removes a wrongly-named old install alongside)
-  rm -rf "${target:?}/"* 2>/dev/null || true
-  if command -v unzip >/dev/null 2>&1; then
-    unzip -oq "$MODULE_ZIP" -d "$target" || { fail "unzip into $target failed"; return 1; }
-  else
-    "$REPO/.venv/bin/python" -c "import zipfile,sys; zipfile.ZipFile('$MODULE_ZIP').extractall('$target')" \
-      || { fail "could not extract module (no unzip, python fallback failed)"; return 1; }
-  fi
-  # warn about other copies that could confuse Foundry: the archived upstream,
-  # or an earlier build of ours that used the auto-wall-companion-ml id.
-  local other
-  for other in auto-wall-companion auto-wall-companion-ml; do
-    if [ -d "$moddir/$other" ]; then
-      warn "another module '$other' also exists at $moddir —"
-      warn "disable/remove it in Foundry (Wall Annotation Companion replaces it)."
-    fi
-  done
-  remember moduledir "$target"
-  ok "module installed → $target"
-  # is Foundry running? then it must be restarted to rescan modules.
-  if pgrep -af 'resources/app/main.js|foundryvtt|main.mjs' >/dev/null 2>&1; then
+  # Foundry only rescans modules at startup.
+  if [ "$(recall modmode)" = "docker" ]; then
+    warn "restart the container so Foundry rescans its modules:"
+    warn "    $(cri_label) restart $FCNAME"
+  elif pgrep -af 'resources/app/main.js|foundryvtt|main\.mjs' >/dev/null 2>&1; then
     warn "Foundry is running — restart it so it picks up the new module."
   fi
   return 0
@@ -666,13 +1044,27 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
   systemctl --user daemon-reload 2>/dev/null || true
   [ -f "$STATE/service.pid" ] && kill "$(cat "$STATE/service.pid")" 2>/dev/null && ok "background instance stopped"
   md="$(recall moduledir)"
-  if [ -n "$md" ] && [ -d "$md" ]; then rm -rf "$md" && ok "Foundry module removed ($md)"; fi
+  if [ -n "$md" ]; then
+    if [ "$(recall modmode)" = "docker" ]; then
+      # NEVER rm that path on the host — it is a path inside the container
+      if cri_probe && foundry_container_find && container_running "$FCID"; then
+        cri exec -u 0 "$FCID" sh -c "rm -rf '$md'" >/dev/null 2>&1 \
+          && ok "Foundry module removed inside $FCNAME ($md)" \
+          || warn "could not remove $md inside the container — do it by hand"
+      else
+        warn "container not reachable — remove the module by hand: $md (inside the container)"
+      fi
+    elif [ -d "$md" ]; then
+      if [ -w "$(dirname "$md")" ]; then rm -rf "$md" && ok "Foundry module removed ($md)"
+      else run_root "remove the module directory $md" rm -rf "$md" && ok "Foundry module removed ($md)"; fi
+    fi
+  fi
   rm -f "$STATE"/step.* "$STATE"/chosen.* "$STATE/service.pid"
   ok "state cleared (venv and model kept; delete $REPO/.venv manually if wanted)"
   exit 0
 fi
 
-STEPS=(sanity pacman model venv pydeps config unit running selftest module)
+ALL_STEPS=(sanity pacman model venv pydeps config unit running selftest foundry module)
 declare -A DESC=(
   [sanity]="system sanity (Arch, disk, RAM)"
   [pacman]="system packages (pacman)"
@@ -683,8 +1075,24 @@ declare -A DESC=(
   [unit]="systemd user service"
   [running]="service running"
   [selftest]="end-to-end self-test"
-  [module]="Foundry module (local install)"
+  [foundry]="Foundry install location (local or container)"
+  [module]="Foundry module files"
 )
+# stage 1 = the service (fully automatic) · stage 2 = the Foundry module (can
+# need one manual action) · stage 3 = two clicks in Foundry's UI, by the user.
+STAGE1=(sanity pacman model venv pydeps config unit running selftest)
+STAGE2=(foundry module)
+declare -A STAGE_OF=()
+for s in "${STAGE1[@]}"; do STAGE_OF[$s]=1; done
+for s in "${STAGE2[@]}"; do STAGE_OF[$s]=2; done
+if [ "$MODULE_ONLY" -eq 1 ]; then
+  [ "$NO_MODULE" -eq 1 ] && die "--module-only and --no-module/--service-only contradict each other"
+  STEPS=("${STAGE2[@]}")
+elif [ "$NO_MODULE" -eq 1 ]; then
+  STEPS=("${STAGE1[@]}")
+else
+  STEPS=("${ALL_STEPS[@]}")
+fi
 
 if [ "$DO_STATUS" -eq 1 ]; then
   step "install status (verify only, changing nothing)"
@@ -703,7 +1111,41 @@ echo "${C_B}Wall Annotation Companion — autonomous installer${C_0}"
 echo "repo: $REPO    log: $LOGFILE"
 [ "$VULKAN" -eq 1 ] && warn "--vulkan: MobileNetV3+ncnn GPU path (quality 0.722 vs CPU default 0.765)"
 
+# resuming after a pause? say so, and clear the marker.
+if [ -f "$STATE/blocked" ]; then
+  ok "resuming after: $(head -1 "$STATE/blocked")"
+  rm -f "$STATE/blocked"
+fi
+
+echo
+echo "  This installation has ${C_B}3 stages${C_0}:"
+echo "    ${C_B}1${C_0}  detection service         — automatic"
+echo "    ${C_B}2${C_0}  Foundry module files      — automatic, unless Foundry runs in a"
+echo "                                  container and this account may not use it;"
+echo "                                  then it pauses and tells you what to do"
+echo "    ${C_B}3${C_0}  enable it inside Foundry  — you, two clicks, once (printed at the end)"
+
+# Heads-up BEFORE the long stage 1: if we can already see that stage 2 will
+# need a manual action, say it now so it can be done in parallel.
+if [ "$NO_MODULE" -eq 0 ] && [ "$MODULE_ONLY" -eq 0 ] && [ -z "$FOUNDRY_DATA" ]; then
+  foundry_process_scan >/dev/null
+  if [ "$FOUNDRY_PROC_MODE" = "container" ] && ! cri_probe; then
+    echo
+    warn "heads-up: Foundry runs in a container here, and this account cannot talk"
+    warn "to the container runtime — stage 2 will ask you for one action. You can"
+    warn "already do it now in another terminal, it saves a re-run:"
+    warn "    sudo usermod -aG docker $(id -un)     # then log out and back in"
+  fi
+fi
+echo
+
+CUR_STAGE=""
 for s in "${STEPS[@]}"; do
+  if [ "${STAGE_OF[$s]:-}" != "$CUR_STAGE" ]; then
+    CUR_STAGE="${STAGE_OF[$s]}"
+    echo
+    echo "${C_B}── stage $CUR_STAGE/3 ─────────────────────────────────────────────────${C_0}"
+  fi
   step "${DESC[$s]}"
   if "verify_$s"; then
     if marked "$s"; then skip "${DESC[$s]}"; else ok "${DESC[$s]} (was already in place)"; mark "$s"; fi
@@ -736,15 +1178,32 @@ if [ "$NO_SERVICE" -eq 0 ]; then
 fi
 echo
 MD="$(recall moduledir)"
-if [ -n "$MD" ]; then
-  echo "  Foundry module installed at:"
-  echo "      $MD"
-  echo "  Last one-time steps IN FOUNDRY (browser/app, this machine):"
-  echo "    1. restart Foundry if it was running (so it rescans modules)"
+if [ -n "$MD" ] && [ "$NO_MODULE" -eq 0 ]; then
+  if [ "$(recall modmode)" = "docker" ]; then
+    echo "  Foundry module installed INSIDE the container $(recall container):"
+    echo "      $MD"
+    echo "  ${C_B}stage 3 — last one-time steps, by you:${C_0}"
+    echo "    1. restart the container so Foundry rescans its modules:"
+    echo "         $(cri_label) restart $(recall container)"
+  else
+    echo "  Foundry module installed at:"
+    echo "      $MD"
+    echo "  ${C_B}stage 3 — last one-time steps, by you:${C_0}"
+    echo "    1. restart Foundry if it was running (so it rescans modules)"
+  fi
   echo "    2. Game Settings → Manage Modules → enable ${C_B}Wall Annotation Companion${C_0} → Save"
   echo "    3. open a scene, set Scene → Configure → Padding = 0,"
   echo "       pick the Walls tool → ${C_B}Detect Walls (ML)${C_0}. Service URL is preset to the above."
+  if [ "$(recall modmode)" = "docker" ]; then
+    echo
+    echo "  Note: the module calls the service from your ${C_B}browser${C_0}, not from inside the"
+    echo "  container — http://$HOST:$PORT stays correct and you do NOT have to expose"
+    echo "  the port to the container, as long as you play in a browser on this machine."
+  fi
 elif [ "$NO_MODULE" -eq 1 ]; then
-  echo "  Foundry module: skipped. Install it by hand — README Part B —"
-  echo "  into  <FoundryUserData>/Data/modules/$MODULE_ID/  and enable it."
+  echo "  Foundry module: skipped (service only). Install it later with:"
+  echo "      bash install.sh --module-only                       # auto-detect"
+  echo "      bash install.sh --module-only --foundry-data DIR    # explicit path"
+  echo "      bash install.sh --module-only --docker-container N  # Foundry in Docker"
+  echo "  or by hand into  <FoundryUserData>/Data/modules/$MODULE_ID/  (README Part B)."
 fi
