@@ -1,3 +1,64 @@
+## 2026-07-31 (Abend) — ECHTES Foundry-Testsystem (v14 im Container) aufgesetzt; `--serve-module`-Route live bewiesen; PRIORITÄTS-BUG gefunden
+
+**User:** „Can you set up a test system?" → ja, steht: **echtes, lizenziertes Foundry
+v14.365 im Docker-Container** auf der Devbox (felddy/foundryvtt:release, arm64 zieht
+sauber), plus zwei neue Tools:
+- **`tools/foundry_test_env.sh`** — up/status/down, Modi `bind` (Volume gehört mir),
+  `bind-foreign` (uid 421), `volume` (named volume, host-Pfad nur root); Flavour
+  MOCK (echtes Image + echtes node + ECHTES argv `resources/app/main.mjs
+  --port=30000 --headless --noupdate --dataPath=/data`, kein Lizenzbedarf) oder
+  `--real` (echter Server). `status` zeigt u.a. genau den mountinfo-Pfad, den
+  install.sh ohne Docker findet.
+- **`tools/foundry_ui_drive.py`** — Playwright-Treiber (sign-eula, install-module
+  --manifest URL, list-modules) mit Screenshots nach `corpus/results/foundry_ui/`.
+
+**Credentials:** User hat Foundry-Login geschickt → liegen in `~/.foundry_test.json`
+(chmod 600, **außerhalb** des Repos), als felddy-Secret nach `/run/secrets/config.json`
+gemountet (damit NICHT in `docker inspect` sichtbar, anders als --env-file). Nie
+ausgegeben, nie geloggt, nie committet. **→ Passwort wurde im Chat geteilt: User
+soll es rotieren** (gleiche Empfehlung wie damals beim Forge-Passwort).
+
+**🏆 DIE VORHER UNGETESTETE ROUTE IST JETZT ECHT BEWIESEN:** `install.sh
+--serve-module` mit **geblocktem Docker** (PATH-Stub „permission denied on socket")
+gegen den echten v14-Container mit **named volume (host-Pfad nur root)**:
+Manifest-URL serviert (141.83.62.210:8399, Container konnte sie erreichen) → in
+Foundrys „Add-on Modules → Install Module" eingetragen → Foundry-Konsole: **„Module
+wall-annotation-companion was installed successfully"**; Installer erkannte Manifest-
+und Zip-Fetch und beendete sich. Ground truth im Container: Dateien unter
+`/data/Data/modules/wall-annotation-companion`, Owner **node:node (1000:1000)** =
+Foundrys eigener User, v2.2.0. Screenshot-Beleg: `corpus/results/foundry_ui/
+08-module-list.png` (Foundry v14 Build 365 listet „Wall Annotation Companion 2.2.0").
+Auch die docker-cp-Route wurde gegen das ECHTE Image getestet (chown auf 1000:1000).
+
+**🐞 PRIORITÄTS-BUG (nur durch das echte Testsystem gefunden, wäre dem User passiert):**
+`install.sh --module-only` installierte in `~/AppData/Local/FoundryVTT/Data/modules`
+— ein **Alt-Testverzeichnis** aus einer früheren Session —, WÄHREND Foundry im
+Container lief. Ursache: Kandidatenliste mischte Belege und Rateversuche; der
+`find $HOME`-Treffer bestand die „sieht wie Foundry-Data aus"-Prüfung und gewann,
+bevor überhaupt nach dem Container gefragt wurde. **Fix:** Kandidaten sind jetzt in
+zwei Klassen getrennt — `foundry_data_candidates_running` (dataPath eines laufenden
+Host-Foundry + Container-Volume aus /proc/<pid>/mountinfo) vs.
+`foundry_data_candidates_static` (options.json, Standardpfade, $HOME-Suche) —, und
+die Reihenfolge in `do_foundry` ist: explizit → **laufende Instanz** → Container/
+Runtime → statische Rateversuche (mit Herkunftshinweis + Warnung, wenn Foundry in
+einem Container läuft) → root-Pfad → fragen/skippen. `foundry_modules_dir` nimmt
+jetzt `running|static|all`.
+
+**Kleinfix:** `host_addresses` gab docker0 doppelt aus (scope global + explizit) →
+dedupliziert. Beide Suites haben jetzt einen Guard, der die Ausführung verweigert,
+wenn ein fremder foundry-artiger Container läuft (sonst kapert er die Discovery —
+genau das ist mir mit einem Probe-Container passiert).
+
+**Regression:** `tools/test_install_module.sh` 51/51, `tools/test_install_nodocker.sh`
+25/25, shellcheck clean (außer vorbestehendem SC2024).
+
+**NOCH NICHT gemacht:** In-Game-Detection (Welt+System+Szene anlegen, „Detect Walls
+(ML)" klicken) auf diesem v14-Container — die In-Game-Kette war zuletzt auf v13/Forge
+mit dem mbv3-Modell verifiziert, nicht mit ConvNeXt auf v14. Testsystem steht dafür
+bereit (`bash tools/foundry_test_env.sh up --mode volume --real`).
+
+---
+
 ## 2026-07-31 (später) — Modul-Install OHNE Docker-Zugriff: /proc-Mount-Discovery + `--serve-module` (Foundry installiert selbst)
 
 **User-Frage:** „Kannst du das Foundry-Modul auch OHNE Zugriff auf den Docker

@@ -26,3 +26,6 @@ corpus/distill_pl/
 corpus/distill_pl_p1/
 *.data
 .install_state/
+
+# local Foundry test system (credentials live in ~/.foundry_test.json, outside the repo)
+.cache/wac-foundry-test/

@@ -40,6 +40,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# guard: any other foundry-like container would also be discovered and could win
+if docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | grep -qvE 'wac-t[0-9]'; then
+  echo "REFUSING TO RUN: another foundry-like container is running; stop it first"
+  echo "(e.g. bash tools/foundry_test_env.sh down) — otherwise discovery picks it up:"
+  docker ps --format '  {{.Names}} ({{.Image}})' | grep -iE 'foundry|felddy'
+  exit 2
+fi
+
 # ═══ T1: named volume (root-only on the host) → install THROUGH docker ═══════
 say "T1  named volume → docker cp path"
 docker volume create wac_t1_data >/dev/null

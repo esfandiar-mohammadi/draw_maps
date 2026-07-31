@@ -322,9 +322,11 @@ docker_access_gate() {   # certain: Foundry is containerized, runtime unreachabl
 # So we serve zip + a patched manifest from the host and print the URL.
 # ─────────────────────────────────────────────────────────────────────────────
 host_addresses() {   # addresses a container can plausibly reach the host on
-  ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1
-  ip -4 -o addr show dev docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1   # bridge gateway
-  ip -4 -o addr show dev podman0 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+  {
+    ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+    ip -4 -o addr show dev docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1   # bridge gateway
+    ip -4 -o addr show dev podman0 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+  } | awk 'NF && !seen[$0]++'
 }
 serve_module_mode() {
   [ -f "$MODULE_ZIP" ] || die "module package missing: $MODULE_ZIP"
@@ -823,15 +825,24 @@ module_zip_path() {
   return 1
 }
 MODULE_ZIP="$(module_zip_path || echo "$REPO/foundry_module/wall-annotation-companion.zip")"
-foundry_data_candidates() {
-  # print candidate USER-DATA dirs (the folder that CONTAINS Data/ and Config/)
+# Candidates come in two classes, and the class matters: a data dir belonging to
+# a Foundry that is RUNNING RIGHT NOW is evidence, while a directory found by
+# searching $HOME is a guess — an old install or a leftover test dir looks
+# exactly like the real thing. Guesses must never beat evidence (that bug put
+# the module into a stale ~/AppData/... dir while Foundry ran in a container).
+foundry_data_candidates_running() {
   [ -n "$FOUNDRY_DATA" ] && printf '%s\n' "$FOUNDRY_DATA"
-  # 1) a running HOST Foundry process with --dataPath=... (a containerized
-  #    Foundry is skipped on purpose: its --dataPath is a path inside the
-  #    container, e.g. /data, which means nothing on the host)
+  # a running HOST Foundry process with --dataPath=... (a containerized Foundry
+  # is skipped here on purpose: its --dataPath is a path INSIDE the container,
+  # e.g. /data, which means nothing on the host)
   foundry_process_scan
-  # 2) dataPath recorded in any options.json under known config roots
-  local cfg
+  # a CONTAINERIZED Foundry's volume, read out of the container process's mount
+  # table — needs no Docker access at all (see §C.6 in the README)
+  container_volume_hostpaths
+}
+foundry_data_candidates_static() {
+  # dataPath recorded in any options.json under known config roots
+  local cfg dp
   for cfg in "$HOME/.local/share/FoundryVTT/Config/options.json" \
              "${XDG_DATA_HOME:-$HOME/.local/share}/FoundryVTT/Config/options.json" \
              "$HOME/.config/FoundryVTT/Config/options.json" \
@@ -840,36 +851,39 @@ foundry_data_candidates() {
     dp=$(grep -oE '"dataPath"[^,}]*' "$cfg" | head -1 | sed -E 's/.*"dataPath" *: *"([^"]*)".*/\1/')
     [ -n "$dp" ] && printf '%s\n' "${dp%/}"
   done
-  # 2b) a CONTAINERIZED Foundry's volume, read out of the container process's
-  #     mount table — needs no Docker access at all (see §C.6 in the README)
-  container_volume_hostpaths
-  # 3) common default locations
+  # common default locations
   printf '%s\n' "$HOME/.local/share/FoundryVTT" "$HOME/FoundryVTT" \
                 "$HOME/foundrydata" "$HOME/foundryuserdata" \
                 "/opt/foundrydata" "/srv/foundryvtt" "/var/lib/foundryvtt"
-  # 4) bounded filesystem search: a dir containing Data/modules AND Data/worlds
+  # last resort: bounded search of $HOME for something shaped like Foundry data
   local d
   while IFS= read -r d; do printf '%s\n' "$(cd "$d/../.." && pwd)"; done \
     < <(find "$HOME" -maxdepth 5 -type d -name modules -path "*/Data/modules" 2>/dev/null | head -5)
 }
-foundry_modules_dir() {  # echo the best candidate that looks like a real Foundry data dir
+foundry_data_candidates() { foundry_data_candidates_running; foundry_data_candidates_static; }
+foundry_modules_dir() {  # [running|static|all] → best matching <data>/Data/modules
   # Two passes, because several candidates can exist (e.g. more than one
   # container with a /data volume): first insist on a dir that really looks like
   # Foundry user data (modules + worlds/systems/Config), only then fall back to
   # the loose test. Otherwise an unrelated container's volume could win.
-  local c
+  local src="${1:-all}" gen c
+  case "$src" in
+    running) gen=foundry_data_candidates_running;;
+    static)  gen=foundry_data_candidates_static;;
+    *)       gen=foundry_data_candidates;;
+  esac
   while IFS= read -r c; do
     [ -n "$c" ] || continue
     if [ -d "$c/Data/modules" ] && { [ -d "$c/Data/worlds" ] || [ -d "$c/Data/systems" ] || [ -d "$c/Config" ]; }; then
       printf '%s\n' "$c/Data/modules"; return 0
     fi
-  done < <(foundry_data_candidates)
+  done < <("$gen")
   while IFS= read -r c; do
     [ -n "$c" ] || continue
     if [ -d "$c/Data" ] || [ -d "$c/Data/worlds" ] || [ -d "$c/Data/systems" ]; then
       printf '%s\n' "$c/Data/modules"; return 0
     fi
-  done < <(foundry_data_candidates)
+  done < <("$gen")
   return 1
 }
 # reading module.json out of the zip: unzip if present, python otherwise ──────
@@ -960,22 +974,26 @@ do_foundry() {
     ok "using --foundry-data → $md"; return 0
   fi
 
-  # (b) a plain host installation?
-  #     scan the process list HERE (not inside the candidate generator, which
-  #     runs in a subshell) so FOUNDRY_PROC_MODE survives for step (c).
+  # (b) evidence from a Foundry that is RUNNING (host process --dataPath, or a
+  #     container volume read from /proc/<pid>/mountinfo). Scan the process list
+  #     HERE, not inside the candidate generator (which runs in a subshell), so
+  #     FOUNDRY_PROC_MODE survives for step (c).
   foundry_process_scan >/dev/null
-  local md md_ro=""; md="$(foundry_modules_dir || true)"
+  local md md_ro=""; md="$(foundry_modules_dir running || true)"
   if [ -n "$md" ] && [ -w "$md" ]; then
     remember modmode host; remember modparent "$md"; remember cdata ""; remember container ""
-    ok "Foundry data found and writable → $md"; return 0
+    ok "data dir of the running Foundry, writable → $md"; return 0
   fi
   if [ -n "$md" ]; then
     md_ro="$md"        # found, but owned by someone else (Foundry's own uid?)
-    ok "Foundry data found → $md"
+    ok "data dir of the running Foundry → $md"
     warn "but $(id -un) may not write there — looking for a route that needs no root"
   fi
 
-  # (c) containerized?
+  # (c) containerized? This must be settled BEFORE falling back to static host
+  #     guesses: an old install or a leftover test directory under $HOME looks
+  #     exactly like real Foundry data and would silently win over the container
+  #     that is actually running.
   local certain=0 maybe=0
   [ "$FOUNDRY_PROC_MODE" = "container" ] && certain=1
   if [ "$certain" -eq 0 ] && { command -v docker >/dev/null 2>&1 || command -v podman >/dev/null 2>&1; }; then
@@ -1038,7 +1056,22 @@ do_foundry() {
     fi
   fi
 
-  # (d) ask
+  # (d) no running Foundry gave us an answer → static guesses (options.json,
+  #     default locations, then a bounded search of $HOME). These are GUESSES:
+  #     say where the answer came from so a stale directory is recognisable.
+  local md_s; md_s="$(foundry_modules_dir static || true)"
+  if [ -n "$md_s" ]; then
+    if [ -w "$md_s" ]; then
+      remember modmode host; remember modparent "$md_s"; remember cdata ""; remember container ""
+      ok "Foundry data found (not from a running instance) → $md_s"
+      [ "$FOUNDRY_PROC_MODE" = "container" ] && \
+        warn "NOTE: Foundry runs in a container here — if this path is a leftover, re-run with --foundry-data or --docker-container"
+      return 0
+    fi
+    [ -n "$md_ro" ] || md_ro="$md_s"
+  fi
+
+  # (e) ask
   if [ -t 0 ] && [ -t 1 ]; then
     echo "  Could not locate Foundry's user-data folder automatically."
     echo "  In Foundry it is shown at ${C_C}Setup → Configuration → \"User Data Path\"${C_0}."
@@ -1057,7 +1090,14 @@ do_foundry() {
     fi
   fi
 
-  # (e) give up on the module (the service is the critical part) — with a recipe
+  # (f) we know a path but cannot write it, and nothing better turned up → root
+  if [ -n "$md_ro" ]; then
+    remember modmode host; remember modparent "$md_ro"; remember cdata ""; remember container ""
+    warn "will write to $md_ro as root (or use: bash install.sh --serve-module)"
+    return 0
+  fi
+
+  # (g) give up on the module (the service is the critical part) — with a recipe
   warn "skipping the module install — no Foundry user-data folder found here."
   warn "do it by hand: unzip $MODULE_ZIP into <FoundryData>/Data/modules/$MODULE_ID/"
   warn "or re-run with:  bash install.sh --module-only --foundry-data /path/to/FoundryUserData"
@@ -1305,7 +1345,7 @@ echo "    ${C_B}3${C_0}  enable it inside Foundry  — you, two clicks, once (pr
 if [ "$NO_MODULE" -eq 0 ] && [ "$MODULE_ONLY" -eq 0 ] && [ -z "$FOUNDRY_DATA" ]; then
   foundry_process_scan >/dev/null
   if [ "$FOUNDRY_PROC_MODE" = "container" ]; then
-    _hu_md="$(foundry_modules_dir 2>/dev/null || true)"
+    _hu_md="$(foundry_modules_dir running 2>/dev/null || true)"
     if [ -n "$_hu_md" ] && [ -w "$_hu_md" ]; then
       : # the volume is reachable and writable → stage 2 needs nothing from you
     elif ! cri_probe; then
