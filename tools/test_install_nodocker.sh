@@ -24,10 +24,10 @@ cleanup(){ docker rm -f wac-nd-bind wac-nd-vol >/dev/null 2>&1
 trap cleanup EXIT
 
 # guard: a foreign Foundry-ish container would be discovered too and could win
-if docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | grep -qv 'wac-nd-'; then
+if docker ps -a --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | grep -qv 'wac-nd-'; then
   echo "REFUSING TO RUN: another foundry-like container is running — it would be"
   echo "picked up by the discovery and make these results meaningless:"
-  docker ps --format '  {{.Names}} ({{.Image}})' | grep -iE 'foundry|felddy'
+  docker ps -a --format '  {{.Names}} ({{.Image}})' | grep -iE 'foundry|felddy'
   exit 2
 fi
 

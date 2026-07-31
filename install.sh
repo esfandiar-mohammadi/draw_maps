@@ -623,6 +623,7 @@ PY
   fi
   return 0
 }
+arch_pkg_exists() { pacman -Si "$1" >/dev/null 2>&1; }   # in an OFFICIAL repo?
 do_pydeps() {
   local pip="$REPO/.venv/bin/pip"
   run_logged "$pip" install --upgrade pip || true
@@ -631,13 +632,41 @@ do_pydeps() {
   elif run_logged "$pip" install --pre onnxruntime opencv-python-headless "numpy>=2" scikit-image; then
     warn "used pre-release wheels (release wheels not yet available for this python)"
   else
-    warn "no usable wheels for this python — falling back to Arch's python packages"
-    run_root "install python deps from the Arch repos" \
-      pacman -S --needed --noconfirm python-onnxruntime python-opencv python-numpy python-scikit-image \
-      || { fail "neither pip wheels nor Arch packages available for onnxruntime/opencv"; return 1; }
+    # No wheels for this python (Arch rolls python fast; onnxruntime is usually
+    # the laggard). Only SOME of these live in the official repos —
+    # python-onnxruntime does NOT (AUR only, verified 2026-07-31), so installing
+    # the whole list unconditionally would just fail here.
+    warn "no usable wheels for this python ($("$REPO/.venv/bin/python" -V 2>&1)) — trying Arch packages"
+    local want=(python-opencv python-numpy python-scikit-image python-onnxruntime) have=() miss=() p
+    for p in "${want[@]}"; do
+      if arch_pkg_exists "$p"; then have+=("$p"); else miss+=("$p"); fi
+    done
+    [ "${#miss[@]}" -gt 0 ] && warn "not in the official repos: ${miss[*]}"
+    if [ "${#have[@]}" -gt 0 ]; then
+      run_root "install python deps from the Arch repos" \
+        pacman -S --needed --noconfirm "${have[@]}" || warn "pacman could not install: ${have[*]}"
+    fi
     warn "rebuilding venv with --system-site-packages so it sees the Arch packages"
     rm -rf "$REPO/.venv"
     run_logged python3 -m venv --system-site-packages "$REPO/.venv" || return 1
+    # onnxruntime is the one that decides whether the service can run at all
+    if ! "$REPO/.venv/bin/python" -c "import onnxruntime" >/dev/null 2>&1; then
+      need_user_action \
+        "No onnxruntime for this Python ($(python3 -V 2>&1)) — and it is not in Arch's official repos." \
+        "The wall detector needs onnxruntime. Pick ONE, then re-run install.sh:" \
+        "" \
+        "  ${C_B}A) install it from the AUR${C_0} (it is packaged there)" \
+        "       yay -S python-onnxruntime        # or: paru -S python-onnxruntime" \
+        "     The installer then finds it through --system-site-packages." \
+        "" \
+        "  ${C_B}B) use a Python that has wheels${C_0} (usually the previous minor version)" \
+        "       pacman -Ss '^python3' | head        # see what is available" \
+        "       rm -rf $REPO/.venv && <that python> -m venv $REPO/.venv" \
+        "     then re-run install.sh (it keeps an existing, working venv)." \
+        "" \
+        "  ${C_B}C) check whether a wheel exists yet${C_0}" \
+        "       $REPO/.venv/bin/pip install --pre onnxruntime"
+    fi
   fi
   if [ "$VULKAN" -eq 1 ]; then
     run_logged "$pip" install "ncnn>=1.0.20240102" \
@@ -924,6 +953,9 @@ container_mounts() { # <cid> → "dest|src|type|name" per line
   cri inspect --format '{{range .Mounts}}{{.Destination}}|{{.Source}}|{{.Type}}|{{.Name}}{{"\n"}}{{end}}' "$1" 2>/dev/null
 }
 container_running() { [ "$(cri inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ]; }
+container_data_mount() {  # <cid> <dest> → volume NAME or host path mounted there
+  cri inspect --format "{{range .Mounts}}{{if eq .Destination \"$2\"}}{{if .Name}}{{.Name}}{{else}}{{.Source}}{{end}}{{end}}{{end}}" "$1" 2>/dev/null
+}
 container_userdata_dir() {  # <cid> → path INSIDE the container that holds Data/
   local dest src _rest
   if container_running "$1"; then
@@ -1173,12 +1205,43 @@ module_install_host() {  # <modules dir>
   remember moduledir "$target"
   ok "module installed → $target"
 }
+# A Foundry container that is STOPPED (e.g. the user shut Foundry down before
+# installing) cannot be reached with 'exec', but its volume can still be written
+# by a throwaway sidecar that mounts it. No root on the host needed.
+module_install_volume() {  # <mount> <image>
+  local mount="$1" image="$2" stage
+  stage="$(module_stage_tmp)" || { fail "could not unpack $MODULE_ZIP"; return 1; }
+  if ! cri run --rm -u 0 -v "$mount:/data" -v "$stage:/stage:ro" --entrypoint sh "$image" -c \
+        "set -e
+         [ -d /data/Data ] || exit 3
+         mkdir -p /data/Data/modules
+         own=\$(stat -c %u:%g /data/Data/modules)
+         rm -rf '/data/Data/modules/$MODULE_ID'
+         cp -a '/stage/$MODULE_ID' /data/Data/modules/
+         chown -R \"\$own\" '/data/Data/modules/$MODULE_ID'" >>"$LOGFILE" 2>&1; then
+    rm -rf "$stage"; fail "could not write into the container's volume ($mount) — see $LOGFILE"; return 1
+  fi
+  rm -rf "$stage"
+  ok "module written into the stopped container's volume ($mount)"
+}
+module_installed_ok_volume() {  # <mount> <image>
+  local want got
+  want="$(zip_version)"
+  got="$(cri run --rm -v "$1:/data" --entrypoint sh "$2" -c \
+        "cat '/data/Data/modules/$MODULE_ID/module.json' 2>/dev/null" 2>/dev/null)" || return 1
+  printf '%s' "$got" | grep -q "\"id\": *\"$MODULE_ID\"" || return 1
+  [ "$want" = "$(printf '%s' "$got" | grep -oE '"version"[^,}]*' | head -1)" ]
+}
 module_install_docker() {  # <cid> <container userdata>
   local cid="$1" cdata="$2" cmods="$2/Data/modules" cmod="$2/Data/modules/$MODULE_ID" stage
-  container_running "$cid" || {
-    fail "container '$FCNAME' is not running — start it and re-run (files are copied through it)"
-    warn "    $(cri_label) start $FCNAME"
-    return 1; }
+  if ! container_running "$cid"; then
+    local mount; mount="$(container_data_mount "$cid" "$cdata")"
+    [ -n "$mount" ] || { fail "container '$FCNAME' is stopped and its $cdata mount cannot be resolved"; return 1; }
+    warn "container '$FCNAME' is stopped — writing into its volume directly"
+    module_install_volume "$mount" "$FCIMAGE" || return 1
+    remember moduledir "$cmod"; remember modmount "$mount"
+    return 0
+  fi
   stage="$(module_stage_tmp)" || { fail "could not unpack $MODULE_ZIP"; return 1; }
   # remove a stale copy first: 'cp' into a container MERGES directories
   cri exec -u 0 "$cid" sh -c "rm -rf '$cmod'" >/dev/null 2>&1 || true
@@ -1210,9 +1273,10 @@ verify_module() {
       [ -n "$md" ] || { fail "Foundry module not installed in the container yet"; return 1; }
       cri_probe && foundry_container_find || { fail "cannot reach the Foundry container"; return 1; }
       if ! container_running "$FCID"; then
-        warn "container '$FCNAME' is stopped — cannot re-check the module files inside it"
-        marked module && return 0
-        fail "module not verified (container stopped)"; return 1
+        local mnt; mnt="$(recall modmount)"
+        [ -n "$mnt" ] || mnt="$(container_data_mount "$FCID" "$(recall cdata)")"
+        if [ -n "$mnt" ] && module_installed_ok_volume "$mnt" "$FCIMAGE"; then return 0; fi
+        fail "module files missing/outdated in the stopped container's volume"; return 1
       fi
       module_installed_ok_docker "$FCID" "$md" \
         || { fail "module files missing/outdated in $FCNAME:$md"; return 1; };;

@@ -1,3 +1,76 @@
+## 2026-07-31 (spät) — IN-GAME-E2E auf Foundry v14 + v13 + v12 (alle 198 Wände); Ziel-Fehler antizipiert (onnxruntime-AUR-Falle, stopped-container, stale lock)
+
+**User:** Testsystem laufen lassen, und **v13/v12 mitprüfen** (Ziel-Version unbekannt);
+Logs gibt es nicht → **Fehler antizipieren**.
+
+**✅ IN-GAME-E2E, drei Majors, echte Container, root-only named volume:**
+| Foundry | Modul lädt | Toolbar-Button | Wände | Zeit |
+|---|---|---|---|---|
+| v14.365 | ja | ja (`tools` OBJECT) | **198** | 1.9 s |
+| v13 | ja | ja (`tools` OBJECT) | **198** | 1.8 s |
+| v12 | ja | ja (`tools` ARRAY) | **198** | 1.5 s |
+Ablauf je Version: `foundry_test_env.sh up --tag X --real` → `seed` (minimales
+System `walltest` + `maps/testmap.png` = headmasters-quarters 1280²) → `install.sh
+--module-only --docker-container …` (docker-cp-Route) → `restart` → `foundry_ui_drive.py
+e2e` (Welt anlegen, joinen, Modul aktivieren, Szene mit Hintergrund, `AutoWallCompanion
+.detectWalls()`), Belege `docs/evidence/foundry-v1{2,3,4}-walls-detected.png`
+(Wände-Layer aktiviert → Wände sichtbar; zeichnen Außenmauer inkl. Rundung + Nischen
+sauber nach). Identische 198 Wände über alle Versionen = Modul/Service sind
+versionsunabhängig, nur die UI-Anbindung unterscheidet sich.
+
+**🔎 v14-BEFUND (wichtig, aber KEIN Bug heute):** v14 verschiebt den Szenen-Hintergrund
+auf die neuen **Level**-Dokumente. `Scene#background` existiert nur noch als
+Deprecation-Shim („Backwards-compatible support will be removed"). Der Shim liefert
+den Level-`src` korrekt → **das Modul funktioniert auf v14**. Aber: Szene MUSS mit
+`levels:[{background:{src}}]` erzeugt werden; das alte `background:{src}` wird auf v14
+still ignoriert (src=null → Modul holt falsche URL → 404). Genau das war mein erster
+Fehlschlag, kein Modulfehler. **Forward-looking TODO:** Modul soll künftig
+`scene.levels`-Background lesen, sonst bricht v15/16.
+
+**🐞 ANTIZIPIERTE ZIEL-FEHLER — gefunden + behoben:**
+1. **onnxruntime-Fallback war eine Sackgasse.** `do_pydeps` fiel bei fehlenden Wheels
+   auf `pacman -S python-onnxruntime python-opencv …` zurück — **`python-onnxruntime`
+   ist NICHT in den offiziellen Arch-Repos** (nur AUR; via archlinux.org-API geprüft:
+   opencv/numpy/scikit-image = extra, onnxruntime = fehlt). Auf einem rollenden Arch mit
+   zu neuem Python (kein cp3XX-Wheel) wäre der Installer genau hier gestorben — ein
+   sehr plausibler Kandidat für einen der ungenannten Fehler des Users. **Fix:**
+   `arch_pkg_exists()` prüft per `pacman -Si`, installiert nur real existierende Pakete,
+   und wenn onnxruntime danach fehlt → `need_user_action`-Pause mit AUR-Anleitung
+   (`yay -S python-onnxruntime`), Alternative „venv mit älterem Python", Alternative
+   „--pre probieren". Helper isoliert gegen einen pacman-Stub getestet.
+2. **Gestoppter Foundry-Container ließ den Modul-Step hart scheitern** (docker-cp-Route
+   brauchte `docker exec` für rm/mkdir/chown). Realistisch: User fährt Foundry runter,
+   installiert, startet wieder. **Fix:** Sidecar-Container mountet dasselbe Volume und
+   macht rm/cp/chown ohne exec und ohne Host-root; Verify liest module.json ebenso per
+   Sidecar. Neuer Testfall T12 (Container per `docker create`, nie gestartet) grün.
+3. **Stale Foundry-Lock nach Container-Restart.** `docker restart` unter Last hinterlässt
+   `/data/Config/options.json.lock` → Foundry startet nicht mehr („already locked").
+   Da WIR den Restart empfehlen, gehört das in die Doku: README-Troubleshooting-Zeile
+   mit Ein-Zeiler zum Entfernen; `foundry_test_env.sh restart` räumt es automatisch.
+4. **Service-URL bei Docker/anderem Gerät**: Modul ruft aus dem BROWSER → localhost gilt
+   nur, wenn der Browser auf derselben Maschine läuft. Troubleshooting-Zeile ergänzt.
+5. **Mehrere „foundry"-Container** → `--docker-container NAME` (in der Doku).
+
+**Eigene Tooling-Bugs, die dabei auffielen (behoben):** `foundry_test_env.sh restart`
+leitete den Volume-Mount aus `--mode` statt aus dem Container ab → löschte den Lock am
+falschen Ort (jetzt: `docker inspect` der /data-Mount); Suite-Guards prüften nur
+laufende Container, ein **gestoppter** Alt-Container kaperte T9 (jetzt `docker ps -a`).
+`foundry_test_env.sh` kann jetzt `--tag release|13|12` (eigener Container/Volume/Port
+pro Major: 30000/30013/30012) und `seed`/`restart`.
+
+**Regression:** `tools/test_install_module.sh` **56/56** (inkl. T12), `test_install_nodocker.sh`
+**25/25**, shellcheck clean (außer vorbestehendem SC2024).
+
+**Playwright/v14-UI-Fallen (in foundry_ui_drive.py gelöst):** „Allow Sharing Usage
+Data"-Dialog + Guided-Tour-Overlay fangen alle Klicks; Setup-Tabs sind
+`<h2 data-tab=…>`, inaktiver Tab ist `display:none`; alle drei Panels teilen
+`data-action=installPackage` → auf `#setup-packages-modules` scopen, sonst „does not
+appear to point to a System"; v14 legt die Welt nach dem Anlegen sofort los
+(auto-launch) und `/setup` leitet bei aktiver Welt um; v13/v12 nutzen `<select
+name=system>`, v14 eine Karten-Auswahl + „Continue".
+
+---
+
 ## 2026-07-31 (Abend) — ECHTES Foundry-Testsystem (v14 im Container) aufgesetzt; `--serve-module`-Route live bewiesen; PRIORITÄTS-BUG gefunden
 
 **User:** „Can you set up a test system?" → ja, steht: **echtes, lizenziertes Foundry

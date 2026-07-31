@@ -208,11 +208,258 @@ def list_modules(page, url: str) -> list[str]:
         .map(e => e.dataset.packageId + ' — ' + (e.querySelector('.package-title,h3,.title')?.textContent || '').trim())""")
 
 
+def create_world(page, url: str, system: str, title: str) -> bool:
+    page.goto(f"{url}/setup", wait_until="networkidle")
+    time.sleep(2)
+    # With a world already active, Foundry redirects /setup to /join or /game.
+    if "/setup" not in page.url:
+        print(f"  a world is already active (at {page.url}) — skipping creation")
+        return True
+    try:
+        page.wait_for_selector("#setup-packages", timeout=30000)
+    except Exception:
+        print(f"  setup page did not render (at {page.url})", file=sys.stderr)
+        return "/join" in page.url or "/game" in page.url
+    time.sleep(2)
+    dismiss_dialogs(page)
+    dismiss_tours(page)
+    existing = page.evaluate(
+        "[...document.querySelectorAll('#worlds-list [data-package-id]')].map(e => e.dataset.packageId)")
+    if existing:
+        print(f"  world already present: {existing}")
+        return True
+    for sel in ('#setup-packages-worlds button[data-action="worldCreate"]',
+                'button:has-text("Create World")'):
+        b = page.locator(sel).first
+        if b.count() and b.is_visible():
+            b.click()
+            print(f"  clicked {sel}")
+            time.sleep(2)
+            break
+    else:
+        print("  !! no Create World button", file=sys.stderr)
+        return False
+    shot(page, "10-world-dialog")
+    for sel in ('input[name="title"]', 'input[name="name"]'):
+        f = page.locator(sel).first
+        if f.count() and f.is_visible():
+            f.fill(title)
+            break
+    # v14 picks the system from a card list, older versions use a <select>
+    sysel = page.locator('select[name="system"]').first
+    if sysel.count() and sysel.is_visible():
+        sysel.select_option(system)
+        print(f"  system via <select>: {system}")
+    else:
+        for sel in (f'dialog [data-package-id="{system}"]', f'[data-package-id="{system}"]',
+                    f'.package:has-text("{system}")'):
+            card = page.locator(sel).first
+            if card.count() and card.is_visible():
+                card.click()
+                print(f"  system via card: {sel}")
+                time.sleep(0.8)
+                break
+        else:
+            print(f"  !! system '{system}' not selectable", file=sys.stderr)
+            return False
+    for sel in ('button:has-text("Continue")', 'button[data-action="createWorld"]',
+                'dialog button:has-text("Create World")',
+                'form button[type="submit"]', 'button:has-text("Create")'):
+        b = page.locator(sel).last
+        if b.count() and b.is_visible():
+            b.click()
+            print(f"  submitted via {sel}")
+            break
+    # v14 LAUNCHES the new world right away, so the setup page we were polling is
+    # gone — accept any of: it shows up in the world list, or we ended up in the
+    # join screen / in the game itself.
+    for _ in range(120):
+        time.sleep(0.5)
+        if "/join" in page.url or "/game" in page.url:
+            print(f"  world created and launched (now at {page.url})")
+            shot(page, "11-world-created")
+            return True
+        try:
+            got = page.evaluate(
+                "[...document.querySelectorAll('#worlds-list [data-package-id]')].map(e => e.dataset.packageId)")
+        except Exception:
+            continue
+        if got:
+            print(f"  world created: {got}")
+            shot(page, "11-world-created")
+            return True
+    shot(page, "11-world-failed")
+    return False
+
+
+def launch_and_join(page, url: str) -> bool:
+    # already inside the game (v14 auto-launch) or at the join screen?
+    try:
+        if page.evaluate("!!(window.game && game.ready)"):
+            print("  already in the game")
+            shot(page, "13-in-game")
+            return True
+    except Exception:
+        pass
+    if "/join" in page.url:
+        return join_screen(page)
+    page.goto(f"{url}/setup", wait_until="networkidle")
+    page.wait_for_selector("#setup-packages", timeout=30000)
+    time.sleep(1.5)
+    dismiss_dialogs(page)
+    dismiss_tours(page)
+    wid = page.evaluate(
+        "(document.querySelector('#worlds-list [data-package-id]')||{}).dataset?.packageId")
+    if not wid:
+        print("  !! no world to launch", file=sys.stderr)
+        return False
+    # launching by UI needs hover menus; the world launch endpoint is what the
+    # button posts to, and it is stable across v12-v14
+    page.evaluate("""async (wid) => {
+        const r = await fetch('/setup', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'launchWorld', world: wid})});
+        return r.status;
+    }""", wid)
+    for _ in range(60):
+        time.sleep(1)
+        page.goto(f"{url}/join", wait_until="domcontentloaded")
+        if "/join" in page.url:
+            break
+    return join_screen(page)
+
+
+def join_screen(page) -> bool:
+    time.sleep(2)
+    shot(page, "12-join")
+    sel_user = page.locator('select[name="userid"]').first
+    if sel_user.count():
+        opts = page.evaluate(
+            """() => [...document.querySelectorAll('select[name="userid"] option')]
+                    .map(o => [o.value, o.textContent.trim()])""")
+        gm = next((v for v, t in opts if t and "amemaster" in t), None) or \
+             next((v for v, t in opts if v), None)
+        if gm:
+            sel_user.select_option(gm)
+            print(f"  joining as {gm}")
+    for sel in ('button[name="join"]', 'button:has-text("Join Game Session")',
+                'button[type="submit"]'):
+        b = page.locator(sel).first
+        if b.count() and b.is_visible():
+            b.click()
+            print(f"  clicked {sel}")
+            break
+    for _ in range(90):
+        time.sleep(1)
+        if page.evaluate("!!(window.game && game.ready)"):
+            print("  game is ready")
+            shot(page, "13-in-game")
+            return True
+    shot(page, "13-join-failed")
+    return False
+
+
+def enable_module(page, url: str, module_id: str) -> bool:
+    """Enable the module the same way the Manage Modules checkbox does."""
+    enabled = page.evaluate("""async (id) => {
+        const cfg = foundry.utils.deepClone(game.settings.get("core", "moduleConfiguration")) || {};
+        if (cfg[id] === true) return "already";
+        cfg[id] = true;
+        await game.settings.set("core", "moduleConfiguration", cfg);
+        return "set";
+    }""", module_id)
+    print(f"  moduleConfiguration: {enabled}")
+    page.reload(wait_until="domcontentloaded")
+    for _ in range(90):
+        time.sleep(1)
+        if page.evaluate("!!(window.game && game.ready)"):
+            break
+    active = page.evaluate("(id) => !!game.modules.get(id)?.active", module_id)
+    api = page.evaluate("() => !!window.AutoWallCompanion")
+    print(f"  module active: {active}   module API exposed: {api}")
+    # the toolbar button is registered differently on v12 (array of tools) and
+    # v13+ (object keyed by name) — check the tool really landed in the Walls
+    # control, since that is what a user clicks
+    tb = page.evaluate("""() => {
+        const c = ui.controls?.controls;
+        const walls = Array.isArray(c) ? c.find(x => x.name === "walls") : c?.walls;
+        const tools = walls?.tools;
+        const names = Array.isArray(tools) ? tools.map(t => t.name) : Object.keys(tools || {});
+        return {shape: Array.isArray(tools) ? "array" : "object",
+                hasDetectButton: names.includes("detect-walls-ml"), tools: names};
+    }""")
+    print(f"  toolbar: {tb['shape']}, Detect Walls (ML) present: {tb['hasDetectButton']}")
+    shot(page, "14-module-enabled")
+    return bool(active and api and tb["hasDetectButton"])
+
+
+def make_scene_and_detect(page, service: str, map_rel: str) -> dict:
+    # Version-critical: v14 moved the background onto Level documents. Passing
+    # background.src at scene level is silently ignored there (src stays null and
+    # the module then fetches the wrong URL — a 404). v12/v13 have no Level, so
+    # the old shape is required. Foundry's deprecated scene.background shim DOES
+    # report the level's src, which is why the module itself still works on v14.
+    info = page.evaluate("""async (mapRel) => {
+        const dims = await new Promise(res => {
+            const im = new Image();
+            im.onload = () => res({w: im.naturalWidth, h: im.naturalHeight});
+            im.onerror = () => res({w: 2000, h: 2000});
+            im.src = '/' + mapRel;
+        });
+        const name = "Wall E2E";
+        const old = game.scenes.find(s => s.name === name);
+        if (old) await old.delete();            // throwaway test world: keep it deterministic
+        const hasLevels = !!CONFIG.Level?.documentClass;
+        const base = {name, width: dims.w, height: dims.h, padding: 0, grid: {size: 100}};
+        const data = hasLevels
+            ? {...base, levels: [{name: "Ground", background: {src: mapRel}}]}
+            : {...base, background: {src: mapRel}};
+        const sc = await Scene.create(data);
+        await sc.activate();
+        await sc.view();
+        return {sceneId: sc.id, w: dims.w, h: dims.h, levelsApi: hasLevels,
+                backgroundSrc: sc.background?.src ?? null, wallsBefore: sc.walls.size};
+    }""", map_rel)
+    print(f"  scene: {info}")
+    for _ in range(60):
+        time.sleep(1)
+        if page.evaluate("!!(canvas && canvas.ready)"):
+            break
+    page.evaluate("(u) => game.settings.set('wall-annotation-companion', 'serviceUrl', u)", service)
+    shot(page, "15-scene-before")
+    t0 = time.time()
+    res = page.evaluate("""async () => {
+        try {
+            await window.AutoWallCompanion.detectWalls();
+            return {ok: true, walls: canvas.scene.walls.size};
+        } catch (e) {
+            return {ok: false, error: String(e), walls: canvas.scene.walls.size};
+        }
+    }""")
+    res["seconds"] = round(time.time() - t0, 1)
+    time.sleep(3)
+    shot(page, "16-scene-after-detect")
+    # walls are only rendered while the walls layer is active — that is the shot
+    # that actually shows what was detected
+    try:
+        page.evaluate("() => { canvas.walls.activate(); ui.notifications?.clear?.(); }")
+        time.sleep(2.5)
+        shot(page, "17-walls-layer")
+    except Exception as e:
+        print(f"  (could not activate the walls layer: {e})")
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["sign-eula", "install-module", "list-modules"])
+    ap.add_argument("action", choices=["sign-eula", "install-module", "list-modules", "e2e"])
     ap.add_argument("--url", default="http://127.0.0.1:30000")
     ap.add_argument("--manifest")
+    ap.add_argument("--service", default="http://localhost:8177")
+    ap.add_argument("--map", default="maps/testmap.png")
+    ap.add_argument("--system", default="walltest")
+    ap.add_argument("--world", default="Wall E2E World")
+    ap.add_argument("--module-id", default="wall-annotation-companion")
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--shots")
     a = ap.parse_args()
@@ -233,6 +480,23 @@ def main() -> int:
                     return 2
                 sign_eula(page, a.url)
                 rc = 0 if install_module(page, a.url, a.manifest) else 1
+            elif a.action == "e2e":
+                rc = 0
+                print("[1/5] licence")
+                sign_eula(page, a.url)
+                print("[2/5] world")
+                if not create_world(page, a.url, a.system, a.world):
+                    return 1
+                print("[3/5] launch + join")
+                if not launch_and_join(page, a.url):
+                    return 1
+                print("[4/5] enable the module")
+                if not enable_module(page, a.url, a.module_id):
+                    return 1
+                print("[5/5] scene + wall detection")
+                res = make_scene_and_detect(page, a.service, a.map)
+                print(f"  RESULT: {res}")
+                rc = 0 if res.get("ok") and res.get("walls", 0) > 0 else 1
             else:
                 mods = list_modules(page, a.url)
                 print("  modules:", mods)

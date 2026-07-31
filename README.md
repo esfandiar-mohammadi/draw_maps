@@ -85,7 +85,7 @@ notes (Arch Linux, Ryzen 3600 / RX 6600).
 
 | Component | Requirement |
 |---|---|
-| **Foundry VTT** | v12, v13, or v14 (verified on v13/v14) |
+| **Foundry VTT** | v12, v13 or v14 — **all three verified end-to-end in real containers** (see §C.7) |
 | **Python** | 3.10+ (3.12 tested) — for the companion service |
 | **OS** | Linux, macOS, or Windows. Service is pure CPU — **no GPU, no CUDA, no ROCm required** (`install.sh` targets Arch Linux; the service itself runs anywhere) |
 | **RAM** | ~1 GB free while the service runs (measured peak ~750 MB at 1024²) |
@@ -401,6 +401,28 @@ loginctl enable-linger "$USER"                    # keep running without a login
 If Foundry runs on this machine, the default Service URL `http://localhost:8177`
 just works — no tunnel. Only use §B.4's tunnel for hosted Foundry.
 
+### C.7 Verified Foundry versions
+
+Every major the manifest claims (`compatibility.minimum 12`, `verified 14`) was
+driven end-to-end in a real `felddy/foundryvtt` container on a root-only named
+volume: module installed, enabled, a scene created from a 1280×1280 battle map,
+then **Detect Walls (ML)**:
+
+| Foundry | module loads | toolbar button | walls detected | time |
+|---|---|---|---|---|
+| **v14.365** | yes | yes (`tools` object) | **198** | 1.9 s |
+| **v13** | yes | yes (`tools` object) | **198** | 1.8 s |
+| **v12** | yes | yes (`tools` array) | **198** | 1.5 s |
+
+Screenshots: `docs/evidence/foundry-v1{2,3,4}-walls-detected.png`. Reproduce with
+`tools/foundry_test_env.sh` + `tools/foundry_ui_drive.py e2e`.
+
+> **Forward-looking caveat (v14):** v14 moved a scene's background onto its new
+> **Level** documents; `Scene#background` still works through a deprecation shim
+> (that is what the module reads), and Foundry warns that the shim *will* be
+> removed. So the module works on v14 today, but a future major will need it to
+> read the level's background instead.
+
 ### C.6 Foundry in a Docker/Podman container
 
 This is fully supported and needs no manual copying — but it needs **one
@@ -504,6 +526,9 @@ Verified with real containers, two suites, all green:
   `/proc/<pid>/mountinfo`, the named-volume pause, and the full `--serve-module`
   hand-off (patched manifest, routable URL, download detected) with `curl`
   standing in for Foundry, plus the nothing-detectable case (skip, never fail).
+- A **stopped** Foundry container is handled too: the module is written into its
+  volume by a throwaway sidecar (no `docker exec`, no host root), so you can shut
+  Foundry down before installing.
 
 Note on the evidence: the dev box's account *is* in the `docker` group, so the
 `docker cp` route was tested with access. The target may not have it — which is
@@ -525,6 +550,10 @@ a socket-permission denial, not merely reasoned about.
 | Installer: "permission denied … docker.sock" / can't reach the Foundry container | You are not in the `docker` group: `sudo usermod -aG docker "$USER"`, then **log out and back in** (or `newgrp docker`), then re-run `bash install.sh`. Alternatives in §C.6. |
 | Installer stops with "ONE STEP NEEDS YOU" (exit 4) | By design, not an error: do the printed action, then re-run `bash install.sh` — it resumes at that step. |
 | Module installed but Foundry doesn't list it (Docker) | Foundry only rescans modules at startup: `docker restart <container>`. |
+| After a container restart: "Foundry VTT cannot start in this directory which is already locked" | A killed Foundry leaves a lock behind. Remove it and start again: `docker run --rm -u 0 -v <your-data-volume>:/data alpine rm -rf /data/Config/options.json.lock` then `docker start <container>`. Prefer `docker stop` (graceful) over `docker kill`/`restart` under load. |
+| Installer stops at "No onnxruntime for this Python" | Arch rolled Python ahead of the onnxruntime wheels, and `python-onnxruntime` is **not** in the official repos. Install it from the AUR (`yay -S python-onnxruntime`) or build the venv with an older Python, then re-run. |
+| Foundry runs in Docker and Detect Walls says the service is unreachable | The module calls the service **from your browser**. `http://localhost:8177` is right only if the browser runs on the machine hosting the service; from another device use that machine's LAN address (`--host 0.0.0.0`, trusted network only) or the tunnel from §B.4. |
+| Several containers match "foundry" | Name the right one: `bash install.sh --module-only --docker-container NAME`. |
 
 ---
 

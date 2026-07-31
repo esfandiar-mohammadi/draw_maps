@@ -4,6 +4,9 @@
 # exercising install.sh's module stage against the REAL felddy/foundryvtt image.
 #
 #   bash tools/foundry_test_env.sh up [--mode bind|bind-foreign|volume] [--real]
+#                                     [--tag release|13|12] [--port N]
+#   bash tools/foundry_test_env.sh seed          # minimal system + a test map
+#   bash tools/foundry_test_env.sh restart       # rescan packages (clears stale locks)
 #   bash tools/foundry_test_env.sh status
 #   bash tools/foundry_test_env.sh down
 #
@@ -38,11 +41,12 @@
 #                     directory printed by 'status'.
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${FOUNDRY_IMAGE:-felddy/foundryvtt:release}"
-NAME="${FOUNDRY_TEST_NAME:-wac-foundry-test}"
+TAG="${FOUNDRY_TAG:-release}"        # release (=newest), 13, 12 …
+IMAGE=""                             # derived from TAG unless FOUNDRY_IMAGE is set
+NAME=""                              # derived from TAG unless FOUNDRY_TEST_NAME is set
 BASE="${FOUNDRY_TEST_DIR:-$HOME/.cache/wac-foundry-test}"
-VOLUME="wac_foundry_test_data"
-PORT=30000
+VOLUME=""
+PORT=""
 MODE=bind
 REAL=0
 SECRETFILE="$HOME/.foundry_test.json"   # felddy /run/secrets/config.json format
@@ -58,15 +62,23 @@ ACTION="${1:-}"; shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE="$2"; shift 2;;
+    --tag)  TAG="$2"; shift 2;;
     --real) REAL=1; shift;;
     --port) PORT="$2"; shift 2;;
     *) die "unknown option: $1";;
   esac
 done
 case "$MODE" in bind|bind-foreign|volume) ;; *) die "--mode must be bind|bind-foreign|volume";; esac
+# one container/volume/port per Foundry major, so v14, v13 and v12 can coexist
+IMAGE="${FOUNDRY_IMAGE:-felddy/foundryvtt:$TAG}"
+NAME="${FOUNDRY_TEST_NAME:-wac-foundry-test${TAG:+-$TAG}}"
+VOLUME="wac_foundry_test_data_${TAG//[^A-Za-z0-9_]/_}"
+if [ -z "$PORT" ]; then
+  case "$TAG" in release) PORT=30000;; 13) PORT=30013;; 12) PORT=30012;; *) PORT=30100;; esac
+fi
 docker info >/dev/null 2>&1 || die "cannot talk to docker (this helper is for the DEV box, where you have access)"
 
-DATADIR="$BASE/$MODE"
+DATADIR="$BASE/$TAG-$MODE"
 
 mount_arg() {
   case "$MODE" in
@@ -204,8 +216,69 @@ down() {
   fi
 }
 
+# ── seed: a minimal game system + a battle map, so a world can be created ─────
+# A world needs a system, and the registry ones move around / differ per version,
+# so we ship a 3-line system of our own. Both land in the container's data dir.
+seed() {
+  docker inspect "$NAME" >/dev/null 2>&1 || die "no container '$NAME' — run 'up' first"
+  local map="${SEED_MAP:-corpus/ssl_real/headmasters-quarters_031.png}"
+  local tmp; tmp="$(mktemp -d)"
+  mkdir -p "$tmp/walltest"
+  cat > "$tmp/walltest/system.json" <<'EOJ'
+{
+  "id": "walltest",
+  "title": "Wall Test System",
+  "description": "Minimal system used only to create a world for wall-detection E2E tests.",
+  "version": "1.0.0",
+  "compatibility": { "minimum": "12", "verified": "14" },
+  "authors": [{ "name": "draw_maps tests" }],
+  "grid": { "distance": 5, "units": "ft" }
+}
+EOJ
+  docker exec -u 0 "$NAME" sh -c 'mkdir -p /data/Data/systems /data/Data/maps' || die "cannot prepare data dirs"
+  docker cp "$tmp/walltest" "$NAME:/data/Data/systems/" || die "cannot copy the system"
+  if [ -f "$REPO/$map" ]; then
+    docker cp "$REPO/$map" "$NAME:/data/Data/maps/testmap.png" || die "cannot copy the map"
+  elif [ -f "$map" ]; then
+    docker cp "$map" "$NAME:/data/Data/maps/testmap.png" || die "cannot copy the map"
+  else
+    die "map not found: $map (set SEED_MAP=path)"
+  fi
+  docker exec -u 0 "$NAME" sh -c 'chown -R 1000:1000 /data/Data/systems /data/Data/maps'
+  rm -rf "$tmp"
+  ok "seeded system 'walltest' and maps/testmap.png ($(basename "$map"))"
+  docker exec "$NAME" sh -c 'ls /data/Data/systems /data/Data/maps'
+}
+
+# ── restart: Foundry must rescan systems/modules, and a hard restart can leave a
+# stale lock ("cannot start in this directory which is already locked").
+restart() {
+  docker inspect "$NAME" >/dev/null 2>&1 || die "no container '$NAME'"
+  docker stop -t 15 "$NAME" >/dev/null 2>&1 || true
+  # Read the /data mount FROM THE CONTAINER — deriving it from --mode silently
+  # cleared the lock in the wrong place when --mode was not repeated.
+  local m
+  m="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{if .Name}}{{.Name}}{{else}}{{.Source}}{{end}}{{end}}{{end}}' "$NAME")"
+  [ -n "$m" ] || die "cannot determine the /data mount of $NAME"
+  docker run --rm -u 0 -v "$m:/data" --entrypoint sh "$IMAGE" -c \
+    'rm -rf /data/Config/options.json.lock /data/.lock /data/Config/.lock' >/dev/null 2>&1 \
+    || warn "could not clear a stale lock in $m"
+  docker start "$NAME" >/dev/null || die "could not start $NAME"
+  local i
+  for i in $(seq 1 90); do
+    curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/" 2>/dev/null && { ok "Foundry back up on http://127.0.0.1:$PORT/"; return 0; }
+    if [ "$(docker inspect -f '{{.State.Status}}' "$NAME")" = exited ]; then
+      docker logs "$NAME" 2>&1 | tail -8 | sed 's/^/      /'; die "restart failed"
+    fi
+    sleep 1
+  done
+  die "Foundry did not answer after the restart"
+}
+
 case "$ACTION" in
-  up)     up;;
+  up)      up;;
+  seed)    seed;;
+  restart) restart;;
   status) status;;
   down)   down;;
   *) sed -n '3,45p' "$0" | sed 's/^# \{0,1\}//'; exit 1;;

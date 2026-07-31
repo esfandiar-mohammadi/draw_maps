@@ -32,7 +32,8 @@ echo "zip version field: $ZIPVER"
 # whose cgroup is a docker cgroup (so pid_in_container() sees it)
 FOUNDRY_CMD='set -- resources/app/main.js --dataPath=/data; while :; do sleep 3; done'
 cleanup() {
-  docker rm -f wac-t1-foundryvtt wac-t2-foundry wac-t3-foundry >/dev/null 2>&1
+  docker rm -f wac-t1-foundryvtt wac-t2-foundry wac-t3-foundry wac-t12-foundry >/dev/null 2>&1
+  docker volume rm wac_t12_vol >/dev/null 2>&1
   docker run --rm -v "$T/fdata3:/d" alpine sh -c 'rm -rf /d/* /d/.??*' >/dev/null 2>&1
   docker volume rm wac_t1_data >/dev/null 2>&1
   chmod -R u+w "$T" 2>/dev/null
@@ -41,10 +42,10 @@ cleanup() {
 trap cleanup EXIT
 
 # guard: any other foundry-like container would also be discovered and could win
-if docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | grep -qvE 'wac-t[0-9]'; then
+if docker ps -a --format '{{.Names}} {{.Image}}' 2>/dev/null | grep -iE 'foundry|felddy' | grep -qvE 'wac-t[0-9]'; then
   echo "REFUSING TO RUN: another foundry-like container is running; stop it first"
   echo "(e.g. bash tools/foundry_test_env.sh down) — otherwise discovery picks it up:"
-  docker ps --format '  {{.Names}} ({{.Image}})' | grep -iE 'foundry|felddy'
+  docker ps -a --format '  {{.Names}} ({{.Image}})' | grep -iE 'foundry|felddy'
   exit 2
 fi
 
@@ -183,6 +184,22 @@ echo "$out" | sed 's/^/    | /'
 chk "exit 0 (module is not critical)" "[ $rc -eq 0 ]"
 chk "explains the manual route"       "echo \"\$out\" | grep -q 'unzip'"
 chk "offers --docker-container"       "echo \"\$out\" | grep -q -- '--docker-container'"
+
+# ═══ T12: a STOPPED Foundry container → install through its volume ══════════
+say "T12 stopped container (user shut Foundry down before installing)"
+docker volume create wac_t12_vol >/dev/null
+docker run --rm -v wac_t12_vol:/data alpine sh -c 'mkdir -p /data/Data/modules /data/Data/worlds /data/Config; chown -R 1000:1000 /data' >/dev/null
+docker create --name wac-t12-foundry -v wac_t12_vol:/data alpine sh -c 'sleep 3000' >/dev/null
+R12="$(mkrepo r12)"
+out12="$(cd "$R12" && bash install.sh --module-only --docker-container wac-t12-foundry 2>&1)"; rc12=$?
+echo "$out12" | grep -E '✓|✗|!' | sed 's/^/    | /'
+chk "exit 0 with the container stopped" "[ $rc12 -eq 0 ]"
+chk "said it writes into the volume"    "echo \"\$out12\" | grep -qi 'stopped'"
+chk "files really in the volume"        "docker run --rm -v wac_t12_vol:/data alpine test -f /data/Data/modules/wall-annotation-companion/module.json"
+chk "owned by Foundry's uid (1000)"     "[ \"\$(docker run --rm -v wac_t12_vol:/data alpine stat -c %u /data/Data/modules/wall-annotation-companion/module.json)\" = 1000 ]"
+out12b="$(cd "$R12" && bash install.sh --module-only 2>&1)"
+chk "re-run verifies it (still stopped)" "echo \"\$out12b\" | grep -q 'already done, verified'"
+docker rm -f wac-t12-foundry >/dev/null 2>&1; docker volume rm wac_t12_vol >/dev/null 2>&1
 
 # ═══ T11: --status lists the two new steps ════════════════════════════════
 say "T11 --status"

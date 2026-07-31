@@ -11,5 +11,12 @@
   the container: `/data/Data/modules/wall-annotation-companion`, owned by
   `node:node (1000:1000)` — Foundry's own user.
 
+- `foundry-v14-walls-detected.png`, `foundry-v13-walls-detected.png`,
+  `foundry-v12-walls-detected.png` — in-game detection on all three supported
+  Foundry majors, each in its own real container: **198 walls** on the same
+  1280×1280 map (1.9 s / 1.8 s / 1.5 s), walls layer active so the result is
+  visible. v12 registers the toolbar button through the old `tools` **array**,
+  v13/v14 through the `tools` **object**; both paths verified.
+
 Reproduce with `tools/foundry_test_env.sh` (needs Foundry credentials in
 `~/.foundry_test.json`) and `tools/foundry_ui_drive.py`. See README §C.6.
