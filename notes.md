@@ -1,3 +1,78 @@
+## 2026-08-01 — STAGE 1 ENDLICH ECHT GETESTET (Arch-Container): 2 Installer-Bugs gefunden (pacman-Sandbox, verschluckte Fehler)
+
+**User-Frage:** „Hast du das Testsystem genutzt, um fehlende Aspekte im Installations-
+skript zu fixen?" → Ehrliche Antwort war: **nur für Stage 2** (Modul). Stage 1 (Service:
+pacman/venv/wheels/Service/Selftest) war NIE gelaufen — weder hier noch beim User
+erfolgreich. Also nachgeholt: **`tools/test_install_arch.sh`** fährt `install.sh` in
+einem ECHTEN Arch-Container (`menci/archlinuxarm:base`, aarch64 — offizielles
+archlinux-Image ist x86_64-only und es gibt kein binfmt/qemu auf dieser Box; Host-
+binfmt registrieren = Eingriff ins User-System → nicht ohne Rückfrage).
+
+**Was der Harness macht:** tracked files (Working-Tree-Inhalt, kein `git archive HEAD` —
+sonst testet man den letzten Commit) in den Container, Modell vorlegen, `install.sh
+--no-module --no-service` laufen lassen, dann Re-Run-No-Op, dann Selbstheilung
+(.venv löschen → repariert sich), dann der systemd-Pfad ohne Session-Bus.
+
+**🐞 BUG 1 — pacman 7 Landlock-Sandbox killt JEDE Transaktion.** In Umgebungen ohne
+Landlock (Container, gehärtete/ältere Kernel) stirbt `pacman -Sy*` mit
+„restricting filesystem access failed because the Landlock ruleset could not be
+applied" → „switching to sandbox user 'alpm' failed" → „failed to synchronize all
+databases". **Fix:** `pacman_try()` erkennt Landlock/sandbox/DownloadUser im Output und
+wiederholt automatisch mit `--disable-sandbox` (+ Erklärung). Verifiziert: Warnung
+erscheint, danach `✓ system packages`.
+
+**🐞 BUG 2 — der Installer verschluckte pacman-Fehler.** Vorher sah der User nur
+„pacman failed — check network / mirrors (see …log)". Bei einem Fehler auf einem
+fremden Rechner (genau die Lage des Users, der KEINE Logs hat!) ist das nutzlos.
+**Fix:** `log_mark`/`log_since` schneiden den Output der letzten Root-Aktion aus dem
+Log, `pacman_report` druckt die letzten 8 echten Fehlerzeilen + wahrscheinliche
+Ursachen (Netz/Mirror, unterbrochenes Teil-Upgrade → `sudo pacman -Syu`, Keyring →
+`pacman-key --init/--populate`). Gegen einen kaputten Mirror getestet: man sieht jetzt
+„Could not resolve host: nonexistent.invalid" im Terminal.
+
+**🐞 BUG 3 — `user_systemd_available()` war blind.** Die Probe
+`systemctl --user is-enabled default.target` antwortet **„static" mit rc=0, auch wenn
+gar kein User-Bus erreichbar ist** (rein statische Unit-Metadaten). Folge: der
+Installer wählte den systemd-Pfad, `daemon-reload/enable/restart` scheiterten still,
+der Service startete nie → Abbruch am Schritt „service running" statt des vorgesehenen
+Fallbacks. Genau das kann dem User über SSH/ohne Session passieren. **Fix:** Probe ist
+jetzt `systemctl --user show-environment` (braucht den Bus; im Container rc=1, auf
+einer echten Session rc=0 — beides gegengeprüft) **plus Defence-in-Depth:** schlagen
+`daemon-reload/enable/restart` trotzdem fehl, fällt der Installer auf eine
+Hintergrund-Instanz zurück statt den Schritt zu killen.
+
+**🐞 BUG 4 — `verify_unit` hing an `diff`.** `diff` steckt in `diffutils`, das ein
+minimales Arch NICHT zwingend hat (im Testcontainer fehlte es). Ohne `diff` schlug der
+Vergleich IMMER fehl — mit der **falschen** Meldung „unit file outdated (path/port/
+threads changed)" — und der Installer starb am systemd-Schritt direkt nachdem er die
+Unit-Datei korrekt geschrieben hatte. **Fix:** reiner String-Vergleich
+(`[ "$(unit_expected)" = "$(cat …)" ]`), keine externe Abhängigkeit mehr.
+
+**Kosmetik mit Substanz:** die Abschluss-Zusammenfassung behauptete „Service runs as a
+systemd user unit", auch wenn der Fallback lief. Jetzt merkt sich der Installer
+`chosen.svcmode` (systemd|background) und schreibt die Wahrheit + „nach dem nächsten
+Login einmal `systemctl --user enable --now …`".
+
+**Bonus real verifiziert:** der **Modell-Download** (121,8 MB von mohammadi.eu) lief in
+diesem Lauf zum ersten Mal auf Arch komplett durch (`✓ downloaded`).
+
+**Ergebnis Stage 1 auf echtem Arch: grün** — pacman (mit Sandbox-Fallback),
+venv, Wheels (onnxruntime/opencv/scikit-image real installiert), Port/Threads,
+Service-Start, **Selftest „live detection works: 17 walls in 0.2s"**, Re-Run = No-Op,
+Selbstheilung nach `.venv`-Löschung, systemd-Fallback (Unit-Datei wird korrekt
+geschrieben: venv-Python, ConvNeXt-Modell, `--wall_thr 0.5`; ohne Session-Bus startet
+er eine Hintergrund-Instanz und sagt dem User, was er nach dem nächsten Login tun soll).
+
+**Ehrliche Grenzen (jetzt in README §C.7a als Tabelle):** `systemctl --user` mit echtem
+Session-Bus ungetestet (Container hat keinen), Vulkan ungetestet (braucht RX 6600),
+x86_64-Wheel-Verfügbarkeit für DAS Python des Users ungetestet (Testbox ist aarch64,
+ALARM-Repos ≠ Arch-x86_64-Repos).
+
+**Harness-Gotcha:** Bash-Tool-Timeout (2 min) hatte Läufe abgeschnitten → sah aus wie
+ein Hänger, war keiner. Lange Läufe im Hintergrund starten.
+
+---
+
 ## 2026-07-31 (spät) — IN-GAME-E2E auf Foundry v14 + v13 + v12 (alle 198 Wände); Ziel-Fehler antizipiert (onnxruntime-AUR-Falle, stopped-container, stale lock)
 
 **User:** Testsystem laufen lassen, und **v13/v12 mitprüfen** (Ziel-Version unbekannt);

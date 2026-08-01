@@ -107,6 +107,7 @@ run_logged() { _log "RUN   $*"; "$@" >>"${LOGFILE:-/dev/null}" 2>&1; }
 # Arguments
 # ─────────────────────────────────────────────────────────────────────────────
 PORT_PREF=8177; HOST=127.0.0.1; THREADS=""; MODEL_SRC=""; MODEL_URL=""
+PACMAN_ERR=""
 VULKAN=0; NO_SERVICE=0; DO_STATUS=0; DO_RESET=0; DO_UNINSTALL=0
 NO_MODULE=0; FOUNDRY_DATA=""; FOUNDRY_CONTAINER=""; MODULE_ONLY=0
 DO_SERVE=0; SERVE_PORT=8178
@@ -492,6 +493,33 @@ verify_pacman() {
   local m; m="$(pkg_missing)"; [ -z "$m" ] && return 0
   fail "missing packages: $(echo "$m" | tr '\n' ' ')"; return 1
 }
+# what did the last logged command actually say? (so pacman errors reach the
+# user instead of "see the log" — a silent pacman failure is impossible to
+# diagnose remotely)
+log_mark()  { wc -c < "$LOGFILE" 2>/dev/null || echo 0; }
+log_since() { tail -c "+$(( ${1:-0} + 1 ))" "$LOGFILE" 2>/dev/null; }
+pacman_try() {  # pacman_try <description> <pacman args...>
+  local desc="$1"; shift
+  local off out; off="$(log_mark)"
+  if run_root "$desc" pacman "$@"; then return 0; fi
+  out="$(log_since "$off")"
+  # pacman 7 downloads inside a Landlock sandbox as user 'alpm'. Where Landlock
+  # is unavailable (containers, hardened or older kernels) every transaction
+  # dies with "the Landlock ruleset could not be applied" / "switching to
+  # sandbox user 'alpm' failed" — retry without the sandbox.
+  if printf '%s' "$out" | grep -qiE 'landlock|sandbox user|DownloadUser'; then
+    warn "pacman's download sandbox cannot be applied on this kernel/setup"
+    warn "retrying with --disable-sandbox (downloads then run as root, as before pacman 7)"
+    off="$(log_mark)"
+    if run_root "$desc (sandbox disabled)" pacman --disable-sandbox "$@"; then return 0; fi
+    out="$(log_since "$off")"
+  fi
+  PACMAN_ERR="$out"
+  return 1
+}
+pacman_report() {  # show what pacman really complained about
+  printf '%s' "${PACMAN_ERR:-}" | grep -viE '^\s*$' | tail -8 | sed 's/^/      /' >&2
+}
 do_pacman() {
   # stale db lock (crashed pacman) blocks everything — detect and clear it.
   if [ -f /var/lib/pacman/db.lck ] && ! pgrep -x pacman >/dev/null 2>&1; then
@@ -501,12 +529,20 @@ do_pacman() {
   local missing; missing="$(pkg_missing)"; [ -z "$missing" ] && return 0
   # shellcheck disable=SC2086
   set -- $missing
+  PACMAN_ERR=""
   # try WITHOUT refreshing first (no partial-upgrade risk on a live Arch box);
   # if the local db is too old (404s), fall back to a full -Syu.
-  if ! run_root "install packages: $*" pacman -S --needed --noconfirm "$@"; then
+  if ! pacman_try "install packages: $*" -S --needed --noconfirm "$@"; then
     warn "plain install failed (stale package database?) — retrying with full sync (-Syu)"
-    run_root "full system sync + install: $*" pacman -Syu --needed --noconfirm "$@" \
-      || { fail "pacman failed — check network / mirrors (see $LOGFILE)"; return 1; }
+    if ! pacman_try "full system sync + install: $*" -Syu --needed --noconfirm "$@"; then
+      fail "pacman could not install: $*"
+      pacman_report
+      echo "    Full log: $LOGFILE" >&2
+      echo "    Common causes: no network / bad mirror, an interrupted partial upgrade" >&2
+      echo "    (run 'sudo pacman -Syu' yourself once), or a keyring problem" >&2
+      echo "    ('sudo pacman-key --init && sudo pacman-key --populate archlinux')." >&2
+      return 1
+    fi
   fi
   return 0
 }
@@ -729,15 +765,24 @@ WantedBy=default.target
 EOF
 }
 user_systemd_available() {
+  # The probe MUST require the user bus. 'systemctl --user is-enabled
+  # default.target' answers "static" (rc 0) purely from unit metadata even when
+  # no user manager is reachable — with that probe the installer took the
+  # systemd path on a box without a user session and then failed to start
+  # anything. 'show-environment' has to talk to the manager.
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-  systemctl --user is-enabled default.target >/dev/null 2>&1 \
-    || systemctl --user list-units >/dev/null 2>&1
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl --user show-environment >/dev/null 2>&1
 }
 verify_unit() {
   [ "$NO_SERVICE" -eq 1 ] && return 0
   [ -f "$UNIT_PATH" ] || { fail "unit file missing"; return 1; }
-  diff -q <(unit_expected) "$UNIT_PATH" >/dev/null 2>&1 \
-    || { fail "unit file outdated (path/port/threads changed)"; return 1; }
+  # Plain string comparison on purpose: 'diff' lives in diffutils, which a
+  # minimal Arch install may not have. With diff missing the old check failed
+  # every time and blamed "outdated port/threads" — a wrong diagnosis that
+  # killed the install at the systemd step.
+  [ "$(unit_expected)" = "$(cat "$UNIT_PATH" 2>/dev/null)" ] \
+    || { fail "unit file differs from what this install needs (path/port/threads changed?)"; return 1; }
   return 0
 }
 do_unit() {
@@ -780,12 +825,26 @@ do_running() {
     nohup "$REPO/.venv/bin/python" pipeline/wall_service.py $(service_args) \
       >> "$STATE/service.out" 2>&1 &
     echo $! > "$STATE/service.pid"
+    remember svcmode background
   else
-    if user_systemd_available; then
-      rm -f "$STATE/service.out"     # diagnostics should come from journalctl now
-      run_logged systemctl --user daemon-reload
-      run_logged systemctl --user enable "$UNIT_NAME"
-      run_logged systemctl --user restart "$UNIT_NAME"
+    if user_systemd_available && \
+       run_logged systemctl --user daemon-reload && \
+       run_logged systemctl --user enable "$UNIT_NAME" && \
+       run_logged systemctl --user restart "$UNIT_NAME"; then
+      rm -f "$STATE/service.out"     # diagnostics come from journalctl now
+      remember svcmode systemd
+    elif user_systemd_available; then
+      # the bus answered but the unit would not start — do not lose the service
+      # over it; run it in the background and say what happened
+      warn "systemd accepted the connection but could not start $UNIT_NAME"
+      warn "starting a plain background instance instead; check later with:"
+      warn "    systemctl --user status $UNIT_NAME"
+      : > "$STATE/service.out"
+      # shellcheck disable=SC2046
+      nohup "$REPO/.venv/bin/python" pipeline/wall_service.py $(service_args) \
+        >> "$STATE/service.out" 2>&1 &
+      echo $! > "$STATE/service.pid"
+      remember svcmode background
     else
       warn "systemd --user is not reachable from this shell (SSH without a session bus?)"
       warn "starting a plain background instance instead; after your next login run:"
@@ -795,6 +854,7 @@ do_running() {
       nohup "$REPO/.venv/bin/python" pipeline/wall_service.py $(service_args) \
         >> "$STATE/service.out" 2>&1 &
       echo $! > "$STATE/service.pid"
+      remember svcmode background
     fi
   fi
   # wait for it to come up (model load can take a few seconds)
@@ -1458,10 +1518,17 @@ echo "${C_G}${C_B}Installation complete and verified.${C_0}"
 echo
 echo "  Service URL (already the module's default):   ${C_B}http://$HOST:$PORT${C_0}"
 echo "  Model: $(basename "$(model_target)")   threads: $(recall threads)"
-if [ "$NO_SERVICE" -eq 0 ]; then
+if [ "$(recall svcmode)" = "systemd" ]; then
   echo "  Service runs as a systemd user unit:"
   echo "      systemctl --user status|restart|stop $UNIT_NAME"
   echo "      journalctl --user -u $UNIT_NAME -f        # live log"
+else
+  echo "  Service runs as a plain background process (no systemd user session here)."
+  echo "      log:  $STATE/service.out"
+  if [ "$NO_SERVICE" -eq 0 ]; then
+    echo "      The unit file is in place; after your next graphical/SSH login run once:"
+    echo "          systemctl --user enable --now $UNIT_NAME"
+  fi
 fi
 echo
 MD="$(recall moduledir)"

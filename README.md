@@ -401,6 +401,17 @@ loginctl enable-linger "$USER"                    # keep running without a login
 If Foundry runs on this machine, the default Service URL `http://localhost:8177`
 just works — no tunnel. Only use §B.4's tunnel for hosted Foundry.
 
+### C.7a What has actually been executed (and what has not)
+
+| Part | Status |
+|---|---|
+| Stage 1 — pacman, venv, wheels, port/threads, service start, self-test | **run for real** in an Arch container (`tools/test_install_arch.sh`, 26 assertions: install, re-run no-op, self-healing after deleting the venv, and the systemd path without a session bus) |
+| Stage 2 — module install, all routes | **run for real** against Foundry v12/v13/v14 containers (`tools/test_install_module.sh` 56, `tools/test_install_nodocker.sh` 25) |
+| Stage 3 — in Foundry: enable, detect walls | **run for real** on v12/v13/v14, 198 walls each (§C.7) |
+| `systemctl --user` with a real session bus | **not run** — a container has no user session; the *fallback* (unit file written, plain background instance, instructions for the next login) is verified |
+| Vulkan / `--vulkan` | **not run** — needs the RX 6600 |
+| x86_64 specifics (wheel availability for *your* Python) | **not run** — the Arch test box is aarch64 |
+
 ### C.7 Verified Foundry versions
 
 Every major the manifest claims (`compatibility.minimum 12`, `verified 14`) was
@@ -551,6 +562,9 @@ a socket-permission denial, not merely reasoned about.
 | Installer stops with "ONE STEP NEEDS YOU" (exit 4) | By design, not an error: do the printed action, then re-run `bash install.sh` — it resumes at that step. |
 | Module installed but Foundry doesn't list it (Docker) | Foundry only rescans modules at startup: `docker restart <container>`. |
 | After a container restart: "Foundry VTT cannot start in this directory which is already locked" | A killed Foundry leaves a lock behind. Remove it and start again: `docker run --rm -u 0 -v <your-data-volume>:/data alpine rm -rf /data/Config/options.json.lock` then `docker start <container>`. Prefer `docker stop` (graceful) over `docker kill`/`restart` under load. |
+| Installer dies at "systemd user service" right after writing the unit file | Fixed: `verify_unit` no longer needs `diff` (which lives in `diffutils` and can be absent on a minimal install) — it used to fail there with a wrong "outdated" message. Update to the current install.sh. |
+| Service never starts although systemd exists | Fixed: the probe now requires the user bus (`systemctl --user show-environment`); previously `is-enabled` answered "static" without a bus, so the installer used systemd and the service never came up. It now falls back to a background instance and tells you what to run after your next login. |
+| pacman fails with "Landlock ruleset could not be applied" / "switching to sandbox user 'alpm' failed" | pacman 7 downloads in a sandbox that some kernels/containers do not allow. The installer detects this and retries with `--disable-sandbox` automatically; to do it by hand: `sudo pacman --disable-sandbox -Syu`. |
 | Installer stops at "No onnxruntime for this Python" | Arch rolled Python ahead of the onnxruntime wheels, and `python-onnxruntime` is **not** in the official repos. Install it from the AUR (`yay -S python-onnxruntime`) or build the venv with an older Python, then re-run. |
 | Foundry runs in Docker and Detect Walls says the service is unreachable | The module calls the service **from your browser**. `http://localhost:8177` is right only if the browser runs on the machine hosting the service; from another device use that machine's LAN address (`--host 0.0.0.0`, trusted network only) or the tunnel from §B.4. |
 | Several containers match "foundry" | Name the right one: `bash install.sh --module-only --docker-container NAME`. |
