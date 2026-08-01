@@ -1,3 +1,39 @@
+## 2026-08-01 (später) — Fehlende Tests nachgeholt: systemd MIT echtem User-Bus (16/16), `--serve-module`-UI auf v13+v12, x86_64-Wheel-Frage beantwortet
+
+**User: „If some tests are missing, please conduct them."** Drei Lücken waren übrig;
+zwei sind jetzt geschlossen, eine bleibt physisch unmöglich.
+
+**1. `systemctl --user` mit ECHTEM Session-Bus — neu `tools/test_install_systemd.sh`,
+16/16 grün.** Läuft auf dieser Box (hat eine User-Session), pacman wird gestubbt,
+alles andere ist der echte Pfad: Unit geschrieben → `enable` → von systemd gestartet →
+Selftest („17 walls") → übersteht `systemctl --user restart` → Re-Run ist No-Op
+(„already done, verified") → `--uninstall` stoppt und entfernt alles. Nebenwirkungen
+sind eingegrenzt (Scratch-Repo in /tmp, Port 8188 statt 8177, Linger-Zustand wird
+zurückgesetzt). Damit ist Stage 1 auf BEIDEN Wegen belegt: mit Bus (hier) und ohne
+Bus (Container-Fallback).
+
+**2. `--serve-module`-UI-Route auf v13 und v12 nachgezogen** (vorher nur v14): Docker
+für den Installer geblockt (PATH-Stub), Manifest serviert, in Foundrys „Install
+Module" eingetragen → beide melden **„Module wall-annotation-companion was installed
+successfully"**, Dateien liegen im Container. **Wichtiger Nebenbefund:** der
+Container-User unterscheidet sich je Image-Generation — **v12 = `foundry` (421)**,
+**v13/v14 = `node` (1000)**. Genau deshalb chownt der Installer auf den Owner von
+`Data/modules` statt auf eine feste uid; per docker-cp-Route auf v12 gegengeprüft:
+Dateien landen als 421:421. (Meine ursprüngliche 421-Annahme war also für alte
+Images richtig und für aktuelle falsch — die adaptive Lösung deckt beides.)
+
+**3. x86_64-Wheel-Frage ohne x86_64-Box beantwortet (PyPI/Arch-API):** Arch liefert
+aktuell **python 3.14.6**, onnxruntime 1.28.0 hat **cp311–cp314** manylinux-x86_64-
+Wheels → auf dem Ziel sollte pip ein Wheel finden, die AUR-Sackgasse
+[[arch-onnxruntime-not-official]] greift also voraussichtlich NICHT. Gut zu wissen,
+bevor der User dort steht.
+
+**Bleibende, ehrliche Lücken:** Vulkan/RX 6600 (keine AMD-GPU hier — physisch
+unmöglich), Podman (nicht installiert; Codepfad geteilt mit Docker, aber ungetestet),
+echte x86_64-Ausführung. In README §C.7a als Tabelle geführt.
+
+---
+
 ## 2026-08-01 — STAGE 1 ENDLICH ECHT GETESTET (Arch-Container): 2 Installer-Bugs gefunden (pacman-Sandbox, verschluckte Fehler)
 
 **User-Frage:** „Hast du das Testsystem genutzt, um fehlende Aspekte im Installations-

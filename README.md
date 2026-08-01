@@ -408,9 +408,10 @@ just works — no tunnel. Only use §B.4's tunnel for hosted Foundry.
 | Stage 1 — pacman, venv, wheels, port/threads, service start, self-test | **run for real** in an Arch container (`tools/test_install_arch.sh`, 26 assertions: install, re-run no-op, self-healing after deleting the venv, and the systemd path without a session bus) |
 | Stage 2 — module install, all routes | **run for real** against Foundry v12/v13/v14 containers (`tools/test_install_module.sh` 56, `tools/test_install_nodocker.sh` 25) |
 | Stage 3 — in Foundry: enable, detect walls | **run for real** on v12/v13/v14, 198 walls each (§C.7) |
-| `systemctl --user` with a real session bus | **not run** — a container has no user session; the *fallback* (unit file written, plain background instance, instructions for the next login) is verified |
+| `systemctl --user` with a real session bus | **run for real** (`tools/test_install_systemd.sh`, 16 assertions: unit written → enabled → started by systemd → self-test → survives `systemctl --user restart` → re-run no-op → `--uninstall` removes it). The no-bus *fallback* is verified separately in a container |
 | Vulkan / `--vulkan` | **not run** — needs the RX 6600 |
-| x86_64 specifics (wheel availability for *your* Python) | **not run** — the Arch test box is aarch64 |
+| x86_64 specifics (wheel availability for *your* Python) | not executed (the Arch test box is aarch64), but **checked against PyPI**: Arch currently ships Python **3.14.6** and onnxruntime 1.28.0 publishes **cp311–cp314** manylinux x86_64 wheels, so pip should resolve without the AUR fallback |
+| Podman instead of Docker | **not run** — no podman on the dev box; the code path is shared with Docker but unverified |
 
 ### C.7 Verified Foundry versions
 
@@ -427,6 +428,14 @@ then **Detect Walls (ML)**:
 
 Screenshots: `docs/evidence/foundry-v1{2,3,4}-walls-detected.png`. Reproduce with
 `tools/foundry_test_env.sh` + `tools/foundry_ui_drive.py e2e`.
+
+The **`--serve-module` hand-off** (Foundry installs the module itself from a served
+manifest, with Docker blocked for the installer) was driven through the UI on **all
+three majors** — each reported *"Module wall-annotation-companion was installed
+successfully"*, with the files landing inside the container owned by Foundry's own
+user. That user differs by image generation — **v12: `foundry` (421)**, **v13/v14:
+`node` (1000)** — which is why the installer chowns to whoever owns `Data/modules`
+rather than to a hard-coded uid (verified on both).
 
 > **Forward-looking caveat (v14):** v14 moved a scene's background onto its new
 > **Level** documents; `Scene#background` still works through a deprecation shim
