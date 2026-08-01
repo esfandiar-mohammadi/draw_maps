@@ -12,9 +12,13 @@
 #   --presync   run `pacman -Sy` first (a normal, up-to-date box); without it the
 #               image's stale db forces install.sh's -Syu fallback path
 #
-# CAVEAT: this is Arch Linux ARM (aarch64), not Arch x86_64 — the flow, the
+# CAVEAT 1: this is Arch Linux ARM (aarch64), not Arch x86_64 — the flow, the
 # pacman transactions and the pip resolution are real, but wheel availability
 # for the target's x86_64 Python can still differ.
+# CAVEAT 2: run this in the FOREGROUND. A detached/background run gets killed
+# during the last (longest) scenario, which then reports nothing; that is an
+# environment quirk of this dev box, not an installer fault — the scenario was
+# verified separately by running it directly against a prepared container.
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${ARCH_IMAGE:-menci/archlinuxarm:base}"

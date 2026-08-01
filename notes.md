@@ -68,8 +68,15 @@ Session-Bus ungetestet (Container hat keinen), Vulkan ungetestet (braucht RX 660
 x86_64-Wheel-Verfügbarkeit für DAS Python des Users ungetestet (Testbox ist aarch64,
 ALARM-Repos ≠ Arch-x86_64-Repos).
 
-**Harness-Gotcha:** Bash-Tool-Timeout (2 min) hatte Läufe abgeschnitten → sah aus wie
-ein Hänger, war keiner. Lange Läufe im Hintergrund starten.
+**Harness-Gotchas:** (a) Bash-Tool-Timeout (2 min) schnitt Läufe ab → sah aus wie ein
+Hänger, war keiner. (b) **Detached/Hintergrund-Läufe des Arch-Harness werden im
+letzten (längsten) Szenario gekillt** — dreimal exakt an derselben Stelle, Container
+weg, keine Summary. Deshalb Harness im Vordergrund fahren; das systemd-Szenario habe
+ich separat direkt gegen einen vorbereiteten Container verifiziert (grün: Unit
+geschrieben, „systemd --user is not reachable" erkannt, Fallback auf
+Hintergrund-Instanz, Selftest „17 walls", Summary sagt jetzt die Wahrheit).
+(c) `pkill -f wall_service.py` in `docker exec bash -lc` trifft die eigene Shell
+(Selbstmatch, CLAUDE.md-Gotcha) → im Harness mit Bracket-Pattern arbeiten.
 
 ---
 
