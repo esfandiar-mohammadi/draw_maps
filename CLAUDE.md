@@ -1,7 +1,100 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-07-24 spät: PROJEKT DEPLOYMENT-FERTIG, umbenannt,
-> auf GitHub. Nach `/clear` ZUERST diesen Block + notes.md TOP-Eintrag.**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-08-01: INSTALLER GEHÄRTET + ECHT GETESTET
+> (Foundry-in-Docker, v12/v13/v14, Arch-Stage-1, systemd). Nach `/clear` ZUERST
+> diesen Block, dann notes.md OBERSTE 4 Einträge.**
+>
+> **▶️ BEI „go on" OHNE weitere Anweisung — in dieser Reihenfolge:**
+> 1. **Fragen, ob der User `git pull && bash install.sh` auf dem ZIEL laufen ließ**
+>    und was passierte. Der echte Ziel-Lauf ist weiterhin der einzige offene
+>    Pflichtschritt; er scheiterte zuletzt mit MEHREREN Fehlern, von denen nur der
+>    Docker-Fehler bekannt war (User hat KEINE Logs). Alles Antizipierte ist gefixt.
+> 2. Wenn nichts Neues vom Ziel: **Default-Arbeit = v14-Level-API im Modul**
+>    (unten „Offene Technik" Punkt 1) — konkret, testbar gegen das laufende v14-
+>    Testsystem. Alternativen: podman-Pfad, ConvNeXt-Small-Student.
+> 3. Der User hat `/deep-research` OHNE Thema getippt — falls er das wollte,
+>    Thema erfragen (kein Fan-out ohne Frage starten).
+>
+> **── Was in dieser Session (07-31 → 08-01) passiert ist ──**
+> Der Installer war vorher NUR gedacht, nicht gelaufen. Jetzt: **beide Hälften real
+> ausgeführt**, dabei **8 Bugs gefunden und gefixt**. Alles gepusht, HEAD = `5baa05f`.
+> Chronik + Begründungen: notes.md-Einträge 2026-07-31 (3×) und 2026-08-01 (2×).
+>
+> **Gefixte Installer-Bugs (Details notes.md):**
+> 1. Foundry-in-Docker war komplett unbekannt → neuer Step `foundry`, Routen:
+>    schreibbarer Host-Pfad → Kopie · Runtime erreichbar → `docker cp` + chown ·
+>    Pfad bekannt aber nicht schreibbar → root · sonst Pause-Gate mit 5 Optionen.
+> 2. **Prioritätsbug:** ein altes `~/AppData/.../Data/modules` schlug den LAUFENDEN
+>    Container. Kandidaten jetzt getrennt: `_running` (Belege) vor `_static` (Raten).
+> 3. **Gestoppter Container** ließ den Modul-Step hart scheitern → Sidecar-Container
+>    (mountet dasselbe Volume, kein `docker exec`, kein Host-root).
+> 4. **pacman 7 Landlock-Sandbox** killt jede Transaktion ohne Landlock → Auto-Retry
+>    mit `--disable-sandbox`.
+> 5. **pacman-Fehler wurden verschluckt** („check network/mirrors") → echte Fehler-
+>    zeilen + wahrscheinliche Ursachen werden gedruckt (wichtig: User hat keine Logs!).
+> 6. **`user_systemd_available()` war blind:** `is-enabled default.target` liefert
+>    „static"/rc0 auch OHNE User-Bus → Installer nahm systemd und startete nie.
+>    Probe jetzt `show-environment` + Degradieren statt Abbruch.
+> 7. **`verify_unit` brauchte `diff`** (diffutils fehlt auf minimalem Arch) → schlug
+>    IMMER fehl mit falscher Meldung „unit file outdated" → jetzt String-Vergleich.
+> 8. **onnxruntime-Fallback war Sackgasse:** `python-onnxruntime` ist NICHT in den
+>    offiziellen Arch-Repos (AUR) → `arch_pkg_exists()` + AUR-Pause-Gate.
+>    (Entwarnung: Arch hat python 3.14.6, onnxruntime 1.28 hat cp314-x86_64-Wheels →
+>    Gate feuert auf dem Ziel voraussichtlich NICHT.)
+> Dazu: `--serve-module` (Foundry installiert sich das Modul SELBST über eine
+> servierte Manifest-URL — braucht WEDER Docker-Zugriff NOCH root), Host-Pfad-Fund
+> ohne Docker über `/proc/<pid>/mountinfo`, `chosen.svcmode` (Summary sagt die
+> Wahrheit), `--module-only`/`--service-only`/`--docker-container`/`--serve-port`.
+>
+> **── Testsysteme + Suiten (alle grün, alle im Repo) ──**
+> * `tools/test_install_module.sh` — 56 Assertions, ECHTE Container (named volume,
+>   Bind-Mount, uid-421-Mount, veraltete Kopie, Pause-Gate, Resume, uninstall,
+>   **gestoppter Container**, `--status`).
+> * `tools/test_install_nodocker.sh` — 25, Docker per PATH-Stub blockiert
+>   (/proc-Discovery, Pause, kompletter `--serve-module`-Handoff).
+> * `tools/test_install_arch.sh` — 26, `install.sh` **in echtem Arch-Container**
+>   (menci/archlinuxarm:base). **NUR IM VORDERGRUND laufen lassen** — detached wird
+>   das letzte Szenario gekillt (3× reproduziert).
+> * `tools/test_install_systemd.sh` — 16, systemd-User-Unit MIT echtem Session-Bus
+>   auf DIESER Box (Port 8188, räumt sich selbst auf).
+> * `tools/foundry_test_env.sh` — echtes Foundry im Container: `up|seed|restart|
+>   status|down`, `--tag release|13|12` (Ports 30000/30013/30012), `--mode
+>   bind|bind-foreign|volume`, `--real` (echter Server) oder Mock (ohne Lizenz).
+> * `tools/foundry_ui_drive.py` — Playwright: `sign-eula`, `install-module
+>   --manifest`, `list-modules`, `e2e` (Welt+Szene+„Detect Walls (ML)").
+> **In-Game verifiziert: v14.365 / v13 / v12 → je 198 Wände (1.9/1.8/1.5 s)**,
+> Belege `docs/evidence/`. `--serve-module`-UI-Route auf allen drei Majors bewiesen.
+>
+> **── Laufender Zustand auf DIESER Box (ggf. aufräumen) ──**
+> 3 Foundry-Container laufen: `wac-foundry-test-release|-13|-12` (30000/30013/30012)
+> + Volumes `wac_foundry_test_data*`; Wall-Service läuft auf :8177.
+> Foundry-Credentials des Users: `~/.foundry_test.json` (chmod 600, AUSSERHALB des
+> Repos, wird als felddy-Secret gemountet) — **nie ausgeben; User soll das Passwort
+> rotieren** (kam einmal durch den Chat). Aufräumen: `bash tools/foundry_test_env.sh
+> down --tag release|13|12`.
+>
+> **── Offene Technik (Vorschläge, User entscheidet) ──**
+> 1. **v14-Level-API im Modul:** v14 hat den Szenen-Hintergrund auf `Level`-Dokumente
+>    verschoben; `Scene#background` ist nur noch ein Deprecation-Shim („will be
+>    removed"). Modul funktioniert HEUTE, bricht aber in einem künftigen Major →
+>    Modul soll den Level-Background lesen. Testbar gegen das laufende v14-System.
+> 2. Ungetestet/unmöglich hier: **Vulkan/RX 6600** (keine AMD-GPU), **podman**
+>    (nicht installiert), **echtes x86_64** (Box ist aarch64, kein binfmt — Host-
+>    binfmt registrieren wäre ein Eingriff ins User-System → nur mit Rückfrage).
+> 3. Optionale Qualitäts-Kür (unverändert): ConvNeXt-Small (54M) als stärkerer
+>    Student; Teacher-Phase-2/3 lohnt für das Produkt NICHT (belegt).
+>
+> **── Session-Gotchas (haben Zeit gekostet) ──**
+> Bash-Tool-Default-Timeout 2 min schneidet lange Läufe ab (sah aus wie Hänger);
+> detached/`nohup &`-Läufe des Arch-Harness werden gekillt → Vordergrund + höheres
+> `timeout`; `pkill -f wall_service.py` in `docker exec bash -lc` trifft die eigene
+> Shell (Selbstmatch); zwei Harness-Läufe gleichzeitig teilen sich Container-Namen
+> und sabotieren sich; `git archive HEAD` testet den letzten Commit, nicht den
+> Working Tree (→ `git ls-files -z | tar`).
+>
+> ---
+>
+> ⏩⏩ **HISTORIE (überholt, nur Kontext) — Stand 2026-07-24 spät:**
 >
 > **PRODUKTNAME: „Wall Annotation Companion"** (Modul-id `wall-annotation-companion`
 > v2.2.0) — NICHT mehr „Auto Wall Companion (ML)" (das war Upstream-Name-Kollision).
