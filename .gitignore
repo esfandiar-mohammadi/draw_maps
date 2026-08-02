@@ -20,6 +20,7 @@ corpus/ssl_real/
 corpus/ssl_pool.txt
 corpus/fa/
 corpus/heat_data_fa/
+corpus/heat_data_fa_inscope/
 corpus/fa_tiles/
 corpus/fa_distractors/
 corpus/distill_pl/
