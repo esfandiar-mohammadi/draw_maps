@@ -1,3 +1,48 @@
+## 2026-08-02 — Testbox aufgeräumt (alle Foundry-Container/Volumes/Service weg); dabei 2 Bugs in `foundry_test_env.sh down` gefixt
+
+**User: „clean up this box".** Der Aufräum-Lauf hat selbst zwei Fehler in der
+Teardown-Funktion aufgedeckt — beide gefixt und verifiziert.
+
+**Aufgeräumt (nichts davon lief noch):**
+* Container `wac-foundry-test-{release,13,12}` (liefen 24–34 h) + Volumes
+  `wac_foundry_test_data{,_release,_13,_12}` (das namenlose war ein Rest aus einem
+  früheren Skript-Stand).
+* Wall-Service auf `127.0.0.1:8177` (PID 3094977) gestoppt; Ports 8177/30000/30012/
+  30013 sind frei.
+* Scratch-Reste `/tmp/wac-{real,sm12,sm13}` + `/tmp/wac-arch-install.log`.
+* systemd-User-Units: **keine** — `test_install_systemd.sh` hatte sich sauber
+  abgeräumt (auch `Linger=no`), wie vorgesehen.
+
+**Bug 1 — `down()` ließ Datenverzeichnisse liegen.** Es entfernte per Container nur
+`bind-foreign`; die Verzeichnisse heißen aber `$BASE/$TAG-$MODE`, und die gehören je
+nach Image-Generation 421/1000/root → `rm -rf` als User scheiterte, jeder der drei
+`down`-Läufe endete mit „could not remove …" und `13-bind` blieb übrig. Jetzt: Löschen
+per Container über **`$BASE/$TAG-*`** (nur der eigene Tag — `$BASE` wird von allen
+Majors geteilt, ein `down --tag 13` darf v14-Daten nicht mitnehmen), Image dafür wird
+aus lokal vorhandenen gewählt (`$IMAGE` → alpine → busybox, kein Pull), danach
+`rmdir $BASE` sobald der letzte Tag weg ist. Status-Zeile sagte ebenfalls noch
+`{bind,bind-foreign}` → auf `$TAG-<mode>` korrigiert.
+
+**Bug 2 — „✓ container removed" war gelogen.** `docker rm -f` liefert **rc 0 auch für
+einen nicht existierenden Container**, das `&& ok` feuerte also immer. Jetzt erst
+`docker inspect`, dann Meldung (mit Namen). Gleiche Klasse wie die früheren
+Verify-Lügen im Installer: Erfolgsmeldung ohne Beleg.
+
+**Verifikation:** Failure-Case nachgebaut (Leftovers `13-bind` als 421 + `release-volume`
+als root) → `down --tag 13` entfernt **nur** `13-*` und lässt `$BASE` stehen →
+`down --tag release` entfernt den Rest **und** `$BASE`. Dazu `down` auf sauberer Box
+(meldet nichts) und ein voller `up --tag 13 --mode volume` → `down`-Rundlauf: Container,
+Volume, Datenverzeichnisse restlos weg. `bash -n` grün. Die vier Installer-Suiten sind
+nicht betroffen (sie bauen ihre Container selbst, referenzieren `foundry_test_env.sh`
+nur in einem Kommentar) → nicht erneut gefahren.
+
+**Bewusst NICHT gelöscht (Platz ist da: 322 G von 3,7 T belegt):** Docker-Images
+(felddy release/13/12 = 876 MB, Arch-Images ~2,1 GB) — ein Neu-Pull kostet nur Zeit;
+und `corpus/heat_data_fa_inscope/` (692 MB, untracked, aus dem abgeschlossenen
+HEAT-Arc). Beides auf Zuruf entfernbar.
+
+---
+
 ## 2026-08-01 (später) — Fehlende Tests nachgeholt: systemd MIT echtem User-Bus (16/16), `--serve-module`-UI auf v13+v12, x86_64-Wheel-Frage beantwortet
 
 **User: „If some tests are missing, please conduct them."** Drei Lücken waren übrig;

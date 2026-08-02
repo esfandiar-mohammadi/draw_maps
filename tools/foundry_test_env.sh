@@ -199,20 +199,38 @@ status() {
   else
     echo "  (no container '$NAME')"
   fi
-  [ -d "$BASE" ] && echo "  data dirs : $BASE/{bind,bind-foreign}   cache: $BASE/<mode>/container_cache"
+  [ -d "$BASE" ] && echo "  data dirs : $BASE/$TAG-<mode>   cache: $BASE/$TAG-<mode>/container_cache"
   docker volume inspect "$VOLUME" >/dev/null 2>&1 && echo "  volume    : $VOLUME exists"
   return 0
 }
 
 down() {
   say "tearing the test system down"
-  docker rm -f "$NAME" >/dev/null 2>&1 && ok "container removed" || true
-  docker volume rm "$VOLUME" >/dev/null 2>&1 && ok "volume removed" || true
+  # `docker rm -f` exits 0 for a missing container, so ask before claiming a kill
+  if docker inspect "$NAME" >/dev/null 2>&1; then
+    docker rm -f "$NAME" >/dev/null 2>&1 && ok "container removed ($NAME)"
+  fi
+  docker volume rm "$VOLUME" >/dev/null 2>&1 && ok "volume removed ($VOLUME)" || true
   if [ -d "$BASE" ]; then
-    # bind-foreign is owned by uid 421 → remove its contents through a container
-    docker run --rm -u 0 -v "$BASE:/b" --entrypoint sh "$IMAGE" -c 'rm -rf /b/bind-foreign' >/dev/null 2>&1 || true
-    rm -rf "$BASE" 2>/dev/null || warn "could not remove $BASE (leftovers owned by another uid?)"
-    [ -d "$BASE" ] || ok "data dirs removed ($BASE)"
+    # This tag's data dirs are $BASE/$TAG-<mode>. Foundry writes them as the
+    # container user (421 'foundry' on v12, 1000 'node' on v13+, root for the
+    # dirs docker creates), so they are not ours to unlink → delete them through
+    # a container. Only THIS tag's dirs go: other majors may coexist ($BASE is
+    # shared). Any locally present image will do; prefer one we already have.
+    local rmimg=""
+    for i in "$IMAGE" alpine:latest busybox:latest; do
+      docker image inspect "$i" >/dev/null 2>&1 && { rmimg="$i"; break; }
+    done
+    [ -n "$rmimg" ] && docker run --rm -u 0 -v "$BASE:/b" --entrypoint sh "$rmimg" \
+      -c 'rm -rf /b/'"$TAG"'-*' >/dev/null 2>&1
+    rm -rf "${BASE:?}/$TAG-"* 2>/dev/null || true
+    if compgen -G "$BASE/$TAG-*" >/dev/null; then
+      warn "could not remove $BASE/$TAG-* (owned by another uid, no image available to do it)"
+    else
+      ok "data dirs removed ($BASE/$TAG-*)"
+      # …and the shared parent once the last tag is gone
+      rmdir "$BASE" 2>/dev/null && ok "cache dir removed ($BASE)"
+    fi
   fi
 }
 

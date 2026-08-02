@@ -65,9 +65,13 @@
 > **In-Game verifiziert: v14.365 / v13 / v12 → je 198 Wände (1.9/1.8/1.5 s)**,
 > Belege `docs/evidence/`. `--serve-module`-UI-Route auf allen drei Majors bewiesen.
 >
-> **── Laufender Zustand auf DIESER Box (ggf. aufräumen) ──**
-> 3 Foundry-Container laufen: `wac-foundry-test-release|-13|-12` (30000/30013/30012)
-> + Volumes `wac_foundry_test_data*`; Wall-Service läuft auf :8177.
+> **── Laufender Zustand auf DIESER Box ──**
+> **AUFGERÄUMT am 2026-08-02** (User-Auftrag): keine Foundry-Container, keine
+> Volumes, kein Wall-Service, keine Scratch-Reste mehr. Neu hochziehen mit
+> `bash tools/foundry_test_env.sh up --tag release|13|12 [--real]`; Docker-Images
+> sind noch lokal (kein Neu-Pull nötig). Dabei 2 Bugs in `down()` gefixt (ließ
+> fremd-owned Datenverzeichnisse liegen; „container removed" war gelogen) —
+> notes.md TOP-Eintrag.
 > Foundry-Credentials des Users: `~/.foundry_test.json` (chmod 600, AUSSERHALB des
 > Repos, wird als felddy-Secret gemountet) — **nie ausgeben; User soll das Passwort
 > rotieren** (kam einmal durch den Chat). Aufräumen: `bash tools/foundry_test_env.sh
