@@ -1,8 +1,24 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
 > ⏩⏩⏩ **RESUME HERE — Stand 2026-08-04: Box aufgeräumt; DER USER WILL JETZT AUF
-> DEM ZIEL INSTALLIEREN. Nach `/clear` ZUERST diesen Block, dann notes.md
-> OBERSTE 2 Einträge.** HEAD = `8264ac4`, alles gepusht, Working Tree sauber.
+> DEM ZIEL INSTALLIEREN.** HEAD = `59d8da4`, alles gepusht, Working Tree sauber.
+>
+> **▶️ WENN DER USER NUR „go on" SCHREIBT (er will nichts wiederholen müssen):**
+> 1. **Diesen Block ganz lesen** — er ist die vollständige Übergabe.
+> 2. **`notes.md`, die OBERSTEN 2 Einträge** (2026-08-04 „Ziel-Installation
+>    vorbereitet" + 2026-08-02 „Testbox aufgeräumt") — Details/Begründungen zu
+>    allem hier. Ältere Einträge nur bei Bedarf.
+> 3. **Auto-Memory** wird als system-reminder geladen (`…/memory/MEMORY.md`);
+>    neu diese Runde: [[user-deployment-nonexpert]].
+> 4. **Dann NICHT breit ausholen, sondern EINE Sache tun:** ist eine Rückmeldung
+>    vom Ziel da → die auswerten; sonst kurz fragen, ob er den Ziel-Lauf gemacht
+>    hat, und in derselben Nachricht anbieten, währenddessen die Default-Arbeit
+>    (v14-Level-API, unten) zu beginnen. **Keine Options-Liste in Jargon** — siehe
+>    „Sprache/Erklärniveau" unten.
+>
+> Notizen dieser Runde stehen in: **`CLAUDE.md`** (dieser Block, die Übergabe),
+> **`notes.md`** (Chronik + Begründungen, neueste oben), **Auto-Memory**
+> (dauerhafte Lehren). Sonst nirgends — kein Scratchpad, keine losen Dateien.
 >
 > **▶️ ERWARTETER NÄCHSTER INPUT: Output/Log vom ZIEL-Lauf.** Der User hat am
 > 2026-08-04 diese drei Befehle bekommen (er tippt sie auf dem Arch-Ziel, als sein
