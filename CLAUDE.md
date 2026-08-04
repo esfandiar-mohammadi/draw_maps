@@ -1,19 +1,45 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-08-01: INSTALLER GEHÄRTET + ECHT GETESTET
-> (Foundry-in-Docker, v12/v13/v14, Arch-Stage-1, systemd). Nach `/clear` ZUERST
-> diesen Block, dann notes.md OBERSTE 4 Einträge.**
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-08-04: Box aufgeräumt; DER USER WILL JETZT AUF
+> DEM ZIEL INSTALLIEREN. Nach `/clear` ZUERST diesen Block, dann notes.md
+> OBERSTE 2 Einträge.** HEAD = `8264ac4`, alles gepusht, Working Tree sauber.
 >
-> **▶️ BEI „go on" OHNE weitere Anweisung — in dieser Reihenfolge:**
-> 1. **Fragen, ob der User `git pull && bash install.sh` auf dem ZIEL laufen ließ**
->    und was passierte. Der echte Ziel-Lauf ist weiterhin der einzige offene
->    Pflichtschritt; er scheiterte zuletzt mit MEHREREN Fehlern, von denen nur der
->    Docker-Fehler bekannt war (User hat KEINE Logs). Alles Antizipierte ist gefixt.
-> 2. Wenn nichts Neues vom Ziel: **Default-Arbeit = v14-Level-API im Modul**
->    (unten „Offene Technik" Punkt 1) — konkret, testbar gegen das laufende v14-
->    Testsystem. Alternativen: podman-Pfad, ConvNeXt-Small-Student.
-> 3. Der User hat `/deep-research` OHNE Thema getippt — falls er das wollte,
->    Thema erfragen (kein Fan-out ohne Frage starten).
+> **▶️ ERWARTETER NÄCHSTER INPUT: Output/Log vom ZIEL-Lauf.** Der User hat am
+> 2026-08-04 diese drei Befehle bekommen (er tippt sie auf dem Arch-Ziel, als sein
+> User, OHNE sudo):
+> ```
+> cat ~/draw_maps/.install_state/install.log        # Log des ALTEN Fehlversuchs
+> cd ~/draw_maps && git pull
+> bash install.sh 2>&1 | tee ~/install_run.log
+> ```
+> **Wenn er ein Log/Fehler schickt: das ist die Arbeit.** Die unbekannten Fehler
+> des ersten Fehlversuchs sind der einzige offene Pflichtschritt (damals: „One
+> error was …" → es waren MEHRERE, nur der Docker-Fehler war bekannt, keine Logs).
+> `install.log` wird **angehängt, nie überschrieben** (auch `--reset` löscht nur
+> `step.*`/`chosen.*`) → das alte Log liegt sehr wahrscheinlich noch dort.
+>
+> **Diese Session geprüft (nicht neu prüfen): Re-Run über den Fehlversuch ist
+> sicher, `--reset` NICHT nötig.** Die Step-Loop ruft IMMER `verify_$s` vor dem
+> Marker; der Marker ändert nur die Wortwahl. Der alte Installer schrieb nur
+> `chosen.{port,threads,selftest_model,moduledir}` — **kein `modmode`** (den
+> `foundry`-Step gab es noch nicht) → `verify_foundry` fällt auf `*` → do_foundry
+> bestimmt den Ort frisch. Stale `moduledir` kann `verify_module` nicht fälschlich
+> grün machen (Pfad wird im frisch bestimmten modmode geprüft).
+>
+> **Wenn NICHTS vom Ziel kommt:** Default-Arbeit = **v14-Level-API im Modul**
+> (unten „Offene Technik" Punkt 1). Testsystem dafür ist abgeräumt →
+> `bash tools/foundry_test_env.sh up --tag release --real` (Images noch lokal).
+> Alternativen: podman-Pfad, ConvNeXt-Small-Student.
+>
+> **── Sprache/Erklärniveau (wichtig, 2026-08-02/04 gelernt) ──**
+> Der User ist beim Deployment **kein Experte** und sagt es offen („I do not
+> understand the questions"). Fragen und Anleitungen fürs Ziel **ohne Jargon**,
+> mit dem Warum in einem Satz, und **exakte Copy-Paste-Befehle** statt Beschrei-
+> bungen. Beispiele, die diese Session nötig waren: „log out" hieß **aus dem
+> Linux-Account/der SSH-Session**, nicht aus Foundry (Gruppenmitgliedschaft gilt
+> erst in neuen Sessions; `newgrp docker` vermeidet den Logout, `--serve-module`
+> vermeidet Docker ganz). Ein Pausen-Gate ist **kein Fehler** — das dem User
+> jedes Mal dazusagen. Siehe [[user-deployment-nonexpert]].
 >
 > **── Was in dieser Session (07-31 → 08-01) passiert ist ──**
 > Der Installer war vorher NUR gedacht, nicht gelaufen. Jetzt: **beide Hälften real

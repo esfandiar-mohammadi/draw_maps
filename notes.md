@@ -1,3 +1,53 @@
+## 2026-08-04 — Ziel-Installation vorbereitet: Re-Run über den Fehlversuch ist BELEGT sicher; exakte Befehle an den User
+
+Kein Code geändert (außer `.gitignore`, `8264ac4`: `corpus/heat_data_fa_inscope/`
+war untracked neben dem längst ignorierten `corpus/heat_data_fa/`). Inhalt dieser
+Runde: die Frage des Users „wenn ich jetzt `git pull` und das Skript starte, geht
+das?" ehrlich und geprüft beantworten.
+
+**Analyse (nicht erneut machen): der alte Fehlversuch kann den neuen Lauf NICHT
+vergiften — `--reset` ist unnötig.**
+* Die Step-Loop ruft **immer** `verify_$s`, BEVOR sie den Marker ansieht; der
+  Marker (`step.*`) steuert nur, ob „skipped" oder „was already in place"
+  gedruckt wird. Ein als erledigt markierter, aber kaputter Schritt wird also
+  repariert, nicht übersprungen.
+* Der Installer-Stand, den der User damals lief (vor `4d62c0a`), schrieb nur
+  `chosen.{port,threads,selftest_model,moduledir}` und hatte **STEPS ohne
+  `foundry`** → kein `chosen.modmode`. `verify_foundry` fällt damit in den
+  `*`-Zweig („location not determined yet") → `do_foundry` bestimmt Host-vs-
+  Docker frisch. Genau der Pfad, der neu ist, wird also garantiert gefahren.
+* Ein stehengebliebenes `chosen.moduledir` (alter, falscher Host-Pfad) kann
+  `verify_module` nicht fälschlich grün machen: geprüft wird im FRISCH bestimmten
+  `modmode`, ein Host-Pfad überlebt die Docker-Prüfung nicht.
+
+**Nebenbefund mit echtem Wert: `install.log` wird angehängt, nie überschrieben**
+(`_log` nutzt `>>`; `--reset` löscht nur `step.*`/`chosen.*`). Das Log des ersten
+Fehlversuchs liegt also mit hoher Wahrscheinlichkeit noch auf dem Ziel — das ist
+die einzige Quelle für die MEHREREN Fehler, die nie diagnostiziert wurden.
+Deshalb steht `cat ~/draw_maps/.install_state/install.log` als **erster** Befehl
+(vor dem neuen Lauf, sonst vermischen sich beide Läufe in derselben Datei).
+
+**An den User gegeben:**
+```
+cat ~/draw_maps/.install_state/install.log
+cd ~/draw_maps && git pull
+bash install.sh 2>&1 | tee ~/install_run.log
+```
+Ohne `sudo` (das Skript holt sich root selbst, nur für pacman, und braucht den
+echten User, um Foundry und den Service-User zu finden).
+
+**Kommunikations-Lehre dieser Runde (→ Memory [[user-deployment-nonexpert]],
+CLAUDE.md-Resume-Block):** Eine AskUserQuestion in Projekt-Jargon („target run",
+„v14 Level-API", „podman-Pfad") wurde als unverständlich abgelehnt — derselbe
+Inhalt in Alltagssprache brachte sofort eine Entscheidung. Ebenso musste „log out
+and back in" erklärt werden: gemeint ist der **Linux-Account/die SSH-Session**,
+nicht Foundry (Gruppen gelten erst in neuen Sessions; `newgrp docker` umgeht den
+Logout, `--serve-module` umgeht Docker komplett). Beim Deployment also: exakte
+Copy-Paste-Befehle + ein Satz Warum + explizit sagen, dass ein Pausen-Gate KEIN
+Fehler ist. Auf der ML-Seite ist der User fluent — dort gilt das nicht.
+
+---
+
 ## 2026-08-02 — Testbox aufgeräumt (alle Foundry-Container/Volumes/Service weg); dabei 2 Bugs in `foundry_test_env.sh down` gefixt
 
 **User: „clean up this box".** Der Aufräum-Lauf hat selbst zwei Fehler in der
