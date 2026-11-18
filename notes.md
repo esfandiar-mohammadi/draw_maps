@@ -1,3 +1,130 @@
+## 2026-11-18 — Erste echte Nutzung auf dem Ziel: Lagefehler (v14-fit), Grid-Fit, Lochschließen, erklärte Fehler, Update-Restart
+
+**Ergebnis (alles verifiziert, s. u.):** Modul **2.3.0** + Dienst mit `grid` und `seal`.
+* **Lagefehler behoben.** Ursache: Modul nahm „Bild auf Szenenrechteck gestreckt" an;
+  Foundry v14 passt Level-Hintergründe mit fill|contain|cover|width|height (+anchor/
+  offset/scale/rotation) ein. Fix: Platzierung aus dem LIVE-Mesh
+  `canvas.primary.background` lesen (`geometry.ts`, pure, Known-Answer-Tests).
+  Live gegen PIXI-worldTransform: v14.365/v13.351/v12.343, je 6 Szenen, ≤ 0.5 px
+  (alte Formel: 451 px daneben bei fit=width). v12/v13 ignorieren `fit` (immer fill).
+* **Grid-Fit** (User-Entscheidung: Foundry-Raster richtet sich nach dem Bild):
+  `grid_detect.detect_grid` im Dienst (`res["grid"]`), Modul fragt → setzt grid.size,
+  Szenengröße, shift (v14 `shiftX/Y`, v12/13 `background.offsetX/Y`), Level-Textur
+  auf fill; Undo über Szenen-Flag `gridUndo`. Bench: 1747 Karten, 1132 gefunden,
+  **0 konfident falsch** (Holdout 1065/0). Live: Linien 46–48 px → ≤ 0.6 px.
+* **Löcher:** zwei Vektorisierer-Bugs gratis gefixt (`close_loops`: approxPolyDP
+  ließ das Schlusssegment weg; `join_ends`), `connect_short`, `merge_dev=2` →
+  neuer Default, F1 unverändert 0.765. Preset **`graph_infer.SEAL`** (Enden
+  überbrücken) = echter Trade-off: Löcher S 448→330, M 436→361, P 0.815→0.809,
+  ~40 % der Brückenlänge nicht auf GT, door_cov 0.65→0.72. Im Dienst als `--seal`
+  (Default AN, Entscheidung „Löcher sind der schlimmste Fehler" des Users) und pro
+  Request `?seal=0|1`; Modul-Setting „Close gaps" (Default an). **Dem User als
+  Schalter mit Zahlen vorgelegt — Default bestätigen lassen.**
+  Attribution: 80 % der Lochlänge = Modell sieht keine Wand (nicht nachbearbeitbar);
+  Zickzack Mauer/Felsrand + eckiger Turm stecken in der Maske (ein fetter Blob).
+  Hysterese + größeres Closing VERWORFEN (P bricht ein).
+* **Fehlermeldungen:** `problems.ts`, Dialog mit Was/Ursachen/Aktionen+Befehle,
+  Codes WAC-xx, en/de. Auslöser: „Failed to fetch" beim User (transient).
+* **Installer-Bug gefunden+gefixt:** nach `git pull` blieb ein gesunder Dienst mit
+  ALTEM Code laufen (verify_running prüfte nur health+Modell). Jetzt `code`-Id in
+  `/health` vs. `wall_service.py --code_id` → Restart. Suite systemd 16→**21** grün.
+* Suiten: module 56/56, nodocker 25/25, systemd 21/21, smoke.mjs grün.
+  **Arch-Suite: 3 von 4 Szenarien grün, letztes (systemd-Fallback) wieder vom
+  Harness gekillt (bekanntes Gotcha; diesmal auch im Vordergrund des Bash-Tools)
+  → NICHT als grün zählen.**
+* E2E v14 mit echtem Dienst + User-Karte: 354 Wände, 0.5 px, Grid 29.623→30,
+  Linienabw. 0.39 px, 2.9 s.
+
+**Neue Lage beim User (wichtig):** ZWEI Rechner. Foundry-Server ohne GPU; Dienst
+auf dem Ryzen/RX-6600-Rechner (CPU-Modell, GPU ungenutzt). Browser muss auf dem
+Dienst-Rechner laufen (oder `ssh -L 8177:…`). README §B.7/§B.8.
+User-Karte + Hand-Annotation: `corpus/user_maps/` (git-ignoriert, Lizenz unklar →
+nie committen). Offene Geschmacksfragen an den User: Felsblöcke sperren? Höhlenränder
+überhaupt? Türen als Türen (Feature fehlt; Modell mauert 65–85 % der Türen zu)?
+
+**Nächster echter Hebel = Modell** (dunkle Höhlenkarten; Mauer+Felsrand als ein
+Blob). Option: User annotiert eigene Karten in Foundry → Wall-Export → Fine-Tune.
+
+### Verlauf / Micro-Checkpoints dieser Session (Detail)
+
+**Neue Lage beim User:** zwei Maschinen. Foundry-Server OHNE GPU; zweiter Rechner
+(Ryzen/RX 6600) für den Dienst. Weg A gewählt: Browser auf dem GPU-Rechner →
+`install.sh --service-only` dort, `--module-only` auf dem Foundry-Server.
+
+**Bug vom Ziel (Screenshot im Chat, Höhlen-/Gebäudekarte):** Wände stimmen in x,
+sind in y ~5 % gestaucht (oben ~+30 px, unten ~+20 px im Screenshot). Bild-Grid
+(weiß) ≠ Foundry-Grid (rot) → Szenengröße hat nicht das Seitenverhältnis der Datei.
+`imageToCanvasSegment` (vendor/auto-wall-companion/src/ts/detect-walls.ts) nimmt an:
+Bild wird auf sceneWidth×sceneHeight gestreckt bei sceneX/sceneY. Das bricht dort.
+Foundry-Version des Users + Szenenmaße noch UNBEKANNT (Konsolen-Einzeiler erbeten).
+Zweites Problem: viele False Positives im dunklen Fels (Modellqualität, später).
+
+**User-Entscheidung:** „Foundry-Raster nach dem Bild richten" (Variante A): Bild in
+Originalgröße, grid.size := im Bild gemessene Kästchengröße, Versatz passend.
+
+**Plan (Status hier fortschreiben):**
+1. [ ] Dienst: Rastererkennung (`pipeline/grid_detect.py`) benchmarken (dd2vtt-ppg
+   als GT) und an `/detect` anschließen (Feld `grid`). → Subagent.
+2. [ ] H1: in echtem Foundry v13+v14 prüfen, wie der Hintergrund platziert wird
+   (Aspect-Mismatch, background.offsetX/Y, v14 Level) → skills/foundry-module-dev.md.
+3. [ ] Modul: (a) Wände an die ECHTE Bildlage setzen; (b) „Raster ans Bild
+   anpassen" mit Bestätigung + Undo (H5); Unit-Tests (H7).
+5. [ ] NEU (User): „Löcher in Wänden" = schlimmster Fehler → Subagent: Gap-Metrik
+   auf in-scope-32, Attribution (Maske/Vektorisierer/Türen), Fix in
+   `graph_infer.build_graph` (Verdacht: `min_len`-`continue` wirft Verbinder weg).
+   Ergebnisse → corpus/results/gap_closing/. wall_service.py evtl. neue Args.
+6. [ ] NEU (User): ausführliche Fehlermeldungen mit Aktionen → `src/ts/problems.ts`
+   (geschrieben, en/de, Codes WAC-xx), `geometry.ts` (pure Mathe), `detect-walls.ts`
+   neu geschrieben (Mesh-Platzierung, Grid-Fit + Undo-Flag `gridUndo`). NOCH NICHT
+   gebaut/getestet. „Failed to fetch" beim User war transient (2 detect-Zeilen im
+   Journal, danach ging es wieder) — Ursache nicht mehr feststellbar.
+   v14-Befund (Quelle im Container gelesen): Level-Textur hat fit=fill|contain|
+   cover|width|height + anchor/offset/scale/rotation; sceneX = padX − shiftX;
+   GRID_MIN_SIZE=20. Test-Foundry v14 läuft: wac-foundry-test-release :30000.
+**STAND 20:30 (Micro-Checkpoint):**
+* Platzierung LIVE verifiziert (Probe scratchpad/probe/placement_probe.py, Truth =
+  PIXI worldTransform): v14.365 / v13.351 / v12.343, je 6 Szenen, Fehler ≤ 0.5 px.
+  Alte Formel: v14 fit=width 451 px daneben; v12/v13 ignorieren `fit` (immer fill,
+  anchor 0/0) → dort war die alte Formel richtig. User-Bug ⇒ sehr wahrscheinlich v14.
+* Modul gebaut (dist), smoke.mjs grün; NICHT committet, zip NICHT neu gebaut.
+* **Beide Subagenten vom User GESTOPPT (Remote Control) — NICHT neu starten ohne
+  Auftrag.** Hinterlassen (ungeprüft, uncommitted!): `pipeline/grid_detect.py` (M),
+  `tools/bench_grid_detect.py` (neu), `pipeline/graph_infer.py` (M),
+  `pipeline/gap_eval.py` (neu). wall_service.py unverändert (kein `grid`-Feld).
+  Verwaister Slurm-Job 10841 (sweep2, unser) abgebrochen.
+* User-Karte: `corpus/user_maps/cave_keep.jpg` (git-ignoriert) + Baseline-Overlay +
+  **Hand-Annotation** `cave_keep_hand_annotation.{jpg,json}` (83 Wand-, 5 Tür-,
+  45 Höhlenrand-Segmente, nach Augenmaß) — an User geschickt. Loch-Prüfstein:
+  Nordwand Keep zwischen (910,550) und (975,545).
+* Test-Foundry laufen noch: wac-foundry-test-{release,13,12}; Snapshot-Dienst :8177
+  (PID in scratchpad/svc/pid).
+**STAND 21:15:** Modul v2.3.0 im Modul-Repo (vendor/auto-wall-companion, Branch
+revival) COMMITTET. Grid-Fit + Problem-Dialoge LIVE grün auf v14/v13/v12
+(scratchpad/probe/gridfit_probe.py mit Stub-Dienst :8179 und synthetischen Karten
+`gridmap_{int,frac}.png`): Linienabweichung 46–48 px → 0 / 0.6 px, Undo stellt her.
+v12/v13: Versatz = `background.offsetX/Y`, v14: `shiftX/Y` — beide verifiziert.
+Beide Subagenten vom User wieder freigegeben → NEU gestartet (Fortsetzung vom
+Plattenstand). OFFEN: Agenten-Ergebnisse einbauen (wall_service `grid` + build_graph-
+Args), zip neu bauen → foundry_module/, README (2 Rechner, Grid-Fit, Fehlercodes),
+E2E mit echtem Dienst, Hauptrepo committen + pushen, Testsysteme abräumen.
+**STAND 21:40 — Grid-Subagent FERTIG (Plan-Punkt 1 ✓, uncommitted):**
+`pipeline/grid_detect.py::detect_grid` (Thin-Line-Filter → Faltung modulo Periode →
+Harmonik-Auflösung → robuster Linien-Fit, sub-pixel, nur numpy+cv2), in
+`wall_service.py` als `res["grid"]` (Wrapper `detect_grid_safe`, nie fatal).
+Bench `tools/bench_grid_detect.py` (Slurm 10850): 1747 Karten, 1132 gefunden (64.8 %),
+**0 konfident falsch**; Holdout 1377/1065/**0**; Periodenfehler p95 0.018 %, max 0.134 %.
+Akzeptanzregel: T_CONF 0.82 + „partial"-Tier (Coverage 0.35–0.70 nur bei sehr klaren
+Margen). Hauptfeind: Bodenfliesen auf halber Periode (falsche Kandidaten bis 0.776).
+cave_keep.jpg: found, 29.623 px, Offset ≈ 0, 52×54 Felder — von mir per Overlay
+gegengeprüft (Linien liegen auf dem Druckraster). Marge dünn (0.859 vs 0.82).
+Bekannte Not-Found-Klassen + Unverifiziertes (nur ~10 kritische Falsch-Kandidaten im
+Korpus; Legacy-`run()`-Aufrufer ungetestet; uvtt-Pfad ignoriert das erkannte Grid):
+voller Report = Task-Output a17df435677dff758 bzw. scratchpad/grid/PROGRESS.md.
+4. [ ] E2E in echtem Foundry mit absichtlich schiefer Szene; zip neu bauen
+   (`foundry_module/wall-annotation-companion.zip`), commit + push.
+
+---
+
 ## 2026-08-04 — Ziel-Installation vorbereitet: Re-Run über den Fehlversuch ist BELEGT sicher; exakte Befehle an den User
 
 Kein Code geändert (außer `.gitignore`, `8264ac4`: `corpus/heat_data_fa_inscope/`

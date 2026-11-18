@@ -67,6 +67,18 @@ chk "re-run exits 0"                      "[ $rc2 -eq 0 ]"
 chk "re-run skips the unit step"          "echo \"\$out2\" | grep -q 'systemd user service (already done, verified)'"
 chk "re-run skips 'service running'"      "echo \"\$out2\" | grep -q 'service running (already done, verified)'"
 
+say "an UPDATE (code changed on disk) must restart the healthy-but-outdated service"
+id_before="$(curl -fsS --max-time 5 http://127.0.0.1:$PORT/health | sed -n 's/.*"code": *"\([0-9a-f]*\)".*/\1/p')"
+echo "# simulated update $(date +%s)" >> "$T/repo/pipeline/graph_infer.py"
+id_disk="$(cd "$T/repo" && .venv/bin/python pipeline/wall_service.py --code_id)"
+out4="$(cd "$T/repo" && PATH="$T/stub:$PATH" bash install.sh --no-module --port "$PORT" 2>&1)"; rc4=$?
+id_after="$(curl -fsS --max-time 5 http://127.0.0.1:$PORT/health | sed -n 's/.*"code": *"\([0-9a-f]*\)".*/\1/p')"
+chk "health reports a code id"            "[ -n \"$id_before\" ]"
+chk "the edit changed the id on disk"     "[ \"$id_disk\" != \"$id_before\" ]"
+chk "update run exits 0"                  "[ $rc4 -eq 0 ]"
+chk "update run says why it restarts"     "echo \"\$out4\" | grep -q 'from before the update'"
+chk "service now runs the new code"       "[ \"$id_after\" = \"$id_disk\" ]"
+
 say "uninstall must stop and remove the unit"
 out3="$(cd "$T/repo" && bash install.sh --uninstall 2>&1)"
 chk "uninstall exits 0"                   "[ \$? -eq 0 ]"

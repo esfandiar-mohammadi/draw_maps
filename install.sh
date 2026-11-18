@@ -810,6 +810,14 @@ verify_running() {
   # it must be serving the model THIS install is about (catches mode switches)
   printf '%s' "$health" | grep -qF "\"$(basename "$(model_target)")\"" \
     || { fail "a service is up on port $port but serves a different model — will restart it"; return 1; }
+  # ...and it must run the code that is on disk NOW. After an update (git pull) the
+  # old process is perfectly healthy and would otherwise never be restarted.
+  local disk_id
+  disk_id="$("$REPO/.venv/bin/python" "$REPO/pipeline/wall_service.py" --code_id 2>/dev/null)" || disk_id=""
+  if [ -n "$disk_id" ] && ! printf '%s' "$health" | grep -qF "\"code\": \"$disk_id\""; then
+    fail "the running service still uses the code from before the update — will restart it"
+    return 1
+  fi
 }
 do_running() {
   local port; port="$(recall port)"

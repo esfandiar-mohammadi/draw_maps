@@ -34,6 +34,34 @@ targeted version BEFORE first use, then move up into the verified list with URL)
 - Scene geometry: `scene.dimensions` (incl. `sceneX`, `sceneY`, `sceneWidth`,
   `sceneHeight`), `scene.background.src`, padding.
 
+### Background placement — image pixels are NOT scene-rect pixels (verified 2026-11-18)
+
+Source: Foundry **14.365** sources read inside the `felddy/foundryvtt:release`
+container (`/home/node/resources/app/client/...`), then measured live against
+PIXI's own `mesh.worldTransform` (probe: 6 scene set-ups, module error ≤ 0.5 px).
+
+- v14 draws the level background as a sprite mesh
+  (`canvas/groups/primary.mjs #drawLevelTexture`): `anchor = textures.anchorX/Y`
+  (default 0.5), `position = sceneRect.center + textures.offsetX/Y`,
+  `angle = textures.rotation`, scale from `PrimarySpriteMesh#resize(sceneW,
+  sceneH, {fit, scaleX, scaleY})`, `fit ∈ fill|contain|cover|width|height`
+  (`CONST.TEXTURE_DATA_FIT_MODES`). **Only `fill` stretches onto the scene
+  rectangle.** The old `sceneX + x·sceneWidth/imgW` formula was up to 451 px off
+  for `fit=width` on a 1396×2300 scene — this was the "walls right in x, squeezed
+  in y" bug from the target.
+- **Never compute the placement from assumptions; read the live mesh**
+  `canvas.primary.background` (`position`, `scale`, `rotation`, `anchor`,
+  `texture.width/height`) → `geometry.ts::imagePointToCanvas`. Normalise by the
+  image size the SERVICE saw (the texture can have another pixel size).
+- v14 scene: `shiftX/shiftY` (integers) and `dimensions.sceneX = paddingX −
+  shiftX` (`client/documents/scene.mjs getDimensions`); `scene.background` is a
+  deprecation shim built from the FIRST level (+`offsetX = shiftX`). Read
+  `scene.levels.find(l => l.isView).background.src` / `.textures` instead.
+  Level texture options are changed with `level.update({textures: {...}})`.
+- `CONST.GRID_MIN_SIZE` = 20 in v14 (read it at runtime, do not hard-code 50).
+- `scene.createEmbeddedDocuments` does **not** return documents in input order —
+  compare walls as a set in tests.
+
 ## Procedure — dev loop
 
 1. Develop in `module/` in this repo; symlink it into the local test

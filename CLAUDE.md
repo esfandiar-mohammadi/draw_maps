@@ -1,6 +1,27 @@
 # CLAUDE.md — draw_maps: automatic wall drawing for Foundry VTT
 
-> ⏩⏩⏩ **RESUME HERE — Stand 2026-08-04: Box aufgeräumt; DER USER WILL JETZT AUF
+> ⏩⏩⏩ **RESUME HERE — Stand 2026-11-18: DAS SYSTEM IST BEIM USER IN BENUTZUNG;
+> Modul 2.3.0 + Dienst (grid, seal) ausgeliefert.** Details: `notes.md` OBERSTER
+> Eintrag (2026-11-18) — zuerst lesen. Kurzfassung:
+> * **Setup des Users: ZWEI Rechner** — Foundry-Server (ohne GPU, sehr wahrscheinlich
+>   v14) + Rechner für den Dienst; Browser läuft auf dem Dienst-Rechner. Update:
+>   `git pull && bash install.sh --service-only` bzw. `--module-only` (README §B.8).
+> * **ERWARTETER NÄCHSTER INPUT:** Rückmeldung nach dem Update (Screenshots von
+>   Löchern/Fehllagen, Fehlercodes `WAC-xx`). Offene Fragen an den User: Default
+>   „Lücken schließen" an lassen? Felsblöcke/Höhlenränder als Wände? Türen als Türen?
+> * **Qualitätsgrenze ist jetzt das MODELL**, nicht die Nachbearbeitung (80 % der
+>   Lochlänge = Modell sieht keine Wand; dunkle Höhlenkarten; Mauer+Felsrand als ein
+>   Blob). Nächster Hebel: Fine-Tune auf solchen Karten (User-Annotationen via
+>   Wall-Export) — erst mit dem User abstimmen.
+> * Prüfkarte des Users: `corpus/user_maps/cave_keep.jpg` (+ Hand-Annotation,
+>   git-ignoriert, nie committen). Tools neu: `pipeline/gap_eval.py`,
+>   `tools/bench_grid_detect.py`. Arch-Suite: letztes Szenario wird vom Harness
+>   gekillt → Ergebnis dort nie als „grün" melden, ohne die Summary-Zeile zu sehen.
+> * Sprache: Deployment-Themen weiter jargonfrei + Copy-Paste [[user-deployment-nonexpert]].
+>
+> ---
+>
+> ⏩⏩ **HISTORIE (überholt) — Stand 2026-08-04: Box aufgeräumt; DER USER WILL JETZT AUF
 > DEM ZIEL INSTALLIEREN.** HEAD = `59d8da4`, alles gepusht, Working Tree sauber.
 >
 > **▶️ WENN DER USER NUR „go on" SCHREIBT (er will nichts wiederholen müssen):**

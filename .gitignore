@@ -30,3 +30,4 @@ corpus/distill_pl_p1/
 
 # local Foundry test system (credentials live in ~/.foundry_test.json, outside the repo)
 .cache/wac-foundry-test/
+corpus/user_maps/

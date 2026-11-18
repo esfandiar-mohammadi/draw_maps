@@ -277,14 +277,59 @@ Docker host): the browser is then on `https://…` and **cannot** reach
 2. Set the service URL: **Game Settings → Configure Settings → Wall Annotation
    Companion → Service URL**. Default `http://localhost:8177` is correct for a
    local Foundry; use the tunnel URL from §B.4 for hosted Foundry.
-3. Open a scene. **Set scene padding to 0** (Scene → Configure → Padding) for
-   accurate wall positioning — the module warns you if it isn't.
+3. Open a scene. (Padding 0 is no longer required since module 2.3.0.)
 4. Select the **Walls** tool in the left toolbar → click **Detect Walls (ML)**.
 5. Confirm the service URL in the dialog and click **Detect walls**. Walls are
    created in batches of 100.
 
 **Safety:** existing walls are never touched, and the last detection is undoable
 from the same dialog (single undo step).
+
+Padding no longer has to be 0: since module 2.3.0 the walls are placed where
+Foundry really draws the image (read from the live background mesh), whatever
+the scene size, padding, shift, or — on v14 — the level's fit mode
+(fill/contain/cover/width/height), offset, scale and rotation. Verified live
+on 14.365, 13.351 and 12.343: ≤ 0.5 px.
+
+### B.6 What the module does besides placing walls (2.3.0)
+
+| Feature | Setting (Configure Settings → Wall Annotation Companion) | Notes |
+|---|---|---|
+| **Fit the Foundry grid to the map's printed grid** | *Fit Foundry grid…*: Ask (default) / Always / Never | The service measures the grid printed in the image (sub-pixel cell size + position). The module then offers to set grid size, scene size and shift so both grids coincide. It shows what will change, warns if the scene already holds objects, and **Undo grid fit** in the same dialog restores the scene. If no grid is found with certainty, nothing is changed — a wrong grid is worse than none (benchmark: 0 wrong of 1132 found on 1747 maps; about one third of maps come back "not found"). |
+| **Close gaps in detected walls** | *Close gaps…*: on (default) / off | Connects wall ends that stop a short distance apart, because a hole leaks vision in play. Measured on 32 held-out maps: holes < 15 px −26 %, 15–40 px −17 %, precision 0.815 → 0.809; about 40 % of the added length is not on a real wall (delete those by hand). Holes where the model sees no wall at all (80 % of the missing length) cannot be closed this way. |
+| **Explained errors** | — | Every failure opens a dialog: what happened, likely causes, what to do, with copy-paste commands and a code (`WAC-10` service unreachable, `WAC-20/21` map image not loadable, `WAC-30/31` connection lost / timeout during detection, `WAC-32` service rejected the image, `WAC-40` no walls, `WAC-50` Foundry refused the walls, `WAC-60` grid change refused). German texts when Foundry's language is German. |
+
+### B.7 Service and Foundry on two different machines
+
+The **browser** calls the service, not the Foundry server. So the service must
+be reachable as `localhost:8177` *from the machine the GM's browser runs on*:
+
+```bash
+# on the machine that should do the computing (no GPU is needed — the default
+# model runs on the CPU; --vulkan would switch to the smaller, weaker model)
+git clone https://github.com/esfandiar-mohammadi/draw_maps.git ~/draw_maps
+cd ~/draw_maps && bash install.sh --service-only
+
+# on the Foundry server
+git clone https://github.com/esfandiar-mohammadi/draw_maps.git ~/draw_maps
+cd ~/draw_maps && bash install.sh --module-only      # or: --serve-module
+```
+
+Then open Foundry in a browser **on the service machine**. If that machine has
+no screen, forward the port from the PC you sit at and leave it running:
+`ssh -L 8177:localhost:8177 NAME@SERVICE-MACHINE`.
+
+### B.8 Updating
+
+```bash
+cd ~/draw_maps && git pull && bash install.sh --service-only   # service machine
+cd ~/draw_maps && git pull && bash install.sh --module-only    # Foundry server
+```
+
+The installer restarts a running service when the code on disk changed (it
+compares the code id in `/health` with the files on disk), and replaces an
+outdated module copy. Afterwards reload Foundry in the browser (F5); if the
+module version under *Manage Modules* is still the old one, restart Foundry.
 
 ---
 
